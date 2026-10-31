@@ -171,7 +171,7 @@ async function show(id, autorun) {
   h += '<div class="grid hero"><div class="card gauge">' + gauge(sc.total) + '<div class="small muted">Audited ' + fmtDate(L.date) +
     (sc.coverage < 100 ? '<br>' + sc.coverage + '% of checks could run' : "") + '</div></div><div class="card"><h2>By area</h2>' +
     Object.entries(S).map(([k, name]) => {
-      const s = sc.sections[k];
+      const s = sc.sections[k] || {pct: null}; // areas added after this audit was saved
       return '<div class="row"><span>' + name + '</span><strong>' + (s.pct == null ? "not checked" : s.pct + "%") + '</strong></div><div class="bar"><i style="width:' + (s.pct || 0) + '%;background:' + col(s.pct) + '"></i></div>';
     }).join("") + '</div></div>';
 
