@@ -109,8 +109,10 @@ export function runChecks(ctx) {
 
   // ---------- Local (25) ----------
   const noGbp = () => [null, google.error || "no Google profile data"];
+  // Searched and not found: that's a real zero, not a check that couldn't run.
+  const zeroIfMissing = (msg) => google.notFound ? [0, msg] : noGbp();
   add("gbp", "local", "Google Business Profile found and open", 5,
-    () => gbp ? [gbp.status && gbp.status !== "OPERATIONAL" ? 0.3 : 1, `${gbp.name} · ${gbp.category || "no category"}`] : noGbp(),
+    () => gbp ? [gbp.status && gbp.status !== "OPERATIONAL" ? 0.3 : 1, `${gbp.name} · ${gbp.category || "no category"}`] : zeroIfMissing("no Google profile found for this business"),
     "Claim or create the Google Business Profile and verify it.", "M");
   add("gbp_complete", "local", "Profile complete (hours, website, photos, description)", 4,
     () => gbp ? [(+gbp.has_hours + +!!gbp.website + Math.min(1, gbp.photos / 10) + +gbp.has_description) / 4,
@@ -118,12 +120,12 @@ export function runChecks(ctx) {
     "Fill every field, add 10+ real photos, write a description with services and town.", "S");
   add("reviews", "local", "Reviews (count and rating)", 5,
     () => gbp ? [0.6 * Math.min(1, gbp.reviews / 50) + 0.4 * Math.max(0, ((gbp.rating || 0) - 3.5) / 1.5),
-      `${gbp.rating ?? "–"}★ from ${gbp.reviews} reviews`] : noGbp(),
+      `${gbp.rating ?? "–"}★ from ${gbp.reviews} reviews`] : zeroIfMissing("no Google reviews (no profile)"),
     "Ask every happy client for a review (QR code or short link) and reply to every review.", "M");
   add("map_rank", "local", "Position on Google Maps for the main search", 5,
     () => rank.out_of !== undefined ? [rank.rank ? 1 - (rank.rank - 1) / 10 : 0,
       `“${rank.query}”: ${rank.rank ? "position " + rank.rank : "not in top " + rank.out_of}`]
-      : [null, rank.error || "not checked"],
+      : google.notFound ? [0, "not on Google Maps (no profile)"] : [null, rank.error || "not checked"],
     "Tighten category, reviews, local content and directory listings to climb the map.", "L");
   add("nap", "local", "Same address and phone on site as on Google", 4,
     () => {

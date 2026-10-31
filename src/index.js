@@ -73,7 +73,7 @@ function aiContext(client, place, site, rank) {
 export async function audit(env, client, opts = {}) {
   const key = env.GOOGLE_API_KEY;
   const google = client.place_id ? await placeById(client.place_id, key)
-    : await findBusiness(client.name, client.city, key);
+    : await findBusiness(client.name, client.city, key, { strict: true, site: client.site });
   const place = google.place;
   let site = client.site || place?.website || "";
   if (site && !/^https?:\/\//.test(site)) site = "https://" + site;

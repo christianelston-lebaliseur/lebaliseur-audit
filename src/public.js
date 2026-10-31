@@ -92,7 +92,7 @@ export async function publicCheck(req, env, deps) {
       en ? "en" : "fr", ipHash).run();
   const leadId = lead.meta.last_row_id;
 
-  const found = await deps.findBusiness(business, city, env.GOOGLE_API_KEY);
+  const found = await deps.findBusiness(business, city, env.GOOGLE_API_KEY, { strict: true, site });
   if (!found.place && !site) {
     await D.prepare("UPDATE leads SET status='not_found' WHERE id=?").bind(leadId).run();
     return fail("Nous n'avons pas trouvé cette entreprise sur Google. Ajoutez votre site web ou précisez le nom.",

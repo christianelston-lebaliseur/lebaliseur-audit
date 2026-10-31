@@ -1,5 +1,8 @@
 // External data: Google PageSpeed Insights and Google Places (Business Profile).
 
+import { plain } from "./checks.js";
+import { nameKey } from "./ai.js";
+
 const PSI = "https://www.googleapis.com/pagespeedonline/v5/runPagespeed";
 const PLACES = "https://places.googleapis.com/v1/places:searchText";
 const FIELDS = ["id", "displayName", "formattedAddress", "nationalPhoneNumber", "websiteUri",
@@ -66,12 +69,32 @@ export function summarisePlace(p) {
   };
 }
 
+// Does a Google result really belong to the business that was asked for? Google always returns its
+// closest matches, even for a business with no profile ("Le Baliseur" → an unrelated shop), so a result
+// counts only if its website is the business's site or the names share their distinctive word.
+const compact = (s) => plain(s).replace(/ /g, "");
+const hostOf = (u) => { try { return new URL(/^https?:/.test(u) ? u : "https://" + u).hostname.replace(/^www\./, ""); } catch { return ""; } };
+export function sameBusiness(p, name, city, site) {
+  if (site && p.website && hostOf(site) && hostOf(site) === hostOf(p.website)) return true;
+  const q = compact(name), r = compact(p.name);
+  const qk = compact(nameKey(name, city, "")), rk = compact(nameKey(p.name, city, ""));
+  return (!!qk && r.includes(qk)) || (!!rk && q.includes(rk));
+}
+
 // Find a business by name; returns the best match plus alternatives.
-export async function findBusiness(name, city, key) {
+// opts.strict: only accept a result that is clearly this business (public check and audits without a
+// confirmed profile); otherwise notFound is set so the report scores "no Google profile".
+export async function findBusiness(name, city, key, opts = {}) {
   const res = await placesSearch(`${name} ${city}`.trim(), key, null, 5);
   if (res.error) return res;
-  if (!res.places.length) return { error: "Not found on Google Maps" };
-  return { place: summarisePlace(res.places[0]), alternatives: res.places.slice(1).map(summarisePlace) };
+  const all = res.places.map(summarisePlace);
+  if (opts.strict) {
+    const hit = all.find((p) => sameBusiness(p, name, city, opts.site));
+    if (!hit) return { error: "No Google profile found for this business", notFound: true, alternatives: all.slice(0, 3) };
+    return { place: hit, alternatives: all.filter((p) => p !== hit) };
+  }
+  if (!all.length) return { error: "Not found on Google Maps", notFound: true };
+  return { place: all[0], alternatives: all.slice(1) };
 }
 
 // Load a known place by id (fresh rating/reviews each month).
