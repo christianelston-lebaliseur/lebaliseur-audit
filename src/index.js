@@ -216,7 +216,10 @@ export default {
     if (url.pathname === "/robots.txt") return new Response("User-agent: *\nDisallow: /\n");
     // Public visibility check (no login), embeddable on lebaliseur.fr.
     if (url.pathname === "/diagnostic" || url.pathname === "/check") {
-      const page = CHECK_HTML
+      const ENGINE_KEYS = { chatgpt: "OPENAI_API_KEY", perplexity: "PERPLEXITY_API_KEY", gemini: "GEMINI_API_KEY" };
+      const aiOn = env.AI_PUBLIC !== "off" && (env.AI_PUBLIC_ENGINES || "perplexity").split(",")
+        .some((e) => env[ENGINE_KEYS[e.trim()]]);
+      const page = (aiOn ? CHECK_HTML : CHECK_HTML.replace(/<li data-fr="Ce que les IA[^\n]*<\/li>\n?/, ""))
         .replace("{{CONTACT_URL}}", env.CONTACT_URL || "https://lebaliseur.fr/#diagnostic")
         .replace("{{CONTACT_URL_EN}}", env.CONTACT_URL_EN || "https://lebaliseur.fr/en/#audit")
         .replace("{{TS_SCRIPT}}", env.TURNSTILE_SITEKEY ? '<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>' : "")

@@ -125,7 +125,8 @@ export async function publicCheck(req, env, deps) {
     site: run.site || null,
     total: run.score.total,
     coverage: run.score.coverage,
-    sections: Object.entries(run.score.sections).map(([k, s]) => ({ name: (SECTION_FR[k] || [k, k])[en ? 1 : 0], pct: s.pct })),
+    // The AI area only appears once it has actually run (an AI key is set).
+    sections: Object.entries(run.score.sections).filter(([k, s]) => k !== "aivis" || s.pct != null).map(([k, s]) => ({ name: (SECTION_FR[k] || [k, k])[en ? 1 : 0], pct: s.pct })),
     top,
   }), { headers: { "content-type": "application/json", "cache-control": "no-store" } });
 }
