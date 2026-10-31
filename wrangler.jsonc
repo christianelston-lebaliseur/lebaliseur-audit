@@ -4,6 +4,7 @@
   "main": "src/index.js",
   "compatibility_date": "2026-10-01",
   "observability": { "enabled": true },
+  "keep_vars": true,
   "d1_databases": [{ "binding": "DB", "database_name": "lebaliseur-audit" }],
   "triggers": { "crons": ["17 */6 * * *"] },
   "rules": [{ "type": "Text", "globs": ["**/*.html"], "fallthrough": true }]
