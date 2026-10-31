@@ -33,3 +33,15 @@ npm install
 echo APP_PASSWORD=test > .dev.vars   # add GOOGLE_API_KEY=... to test Google checks
 npx wrangler dev --test-scheduled
 ```
+
+## Public check (lead magnet)
+
+`/diagnostic` (add `?lang=en` for English, `&embed` inside an iframe) is open to anyone: business name, town, activity, website, first name, email, phone, consent. It runs the full audit, shows the score, the five areas and the top 3 priorities, and saves the person as a lead linked to a *prospect* report in the private app (Leads list on the home screen; "Make client" moves a prospect into monthly tracking). Prospects are not re-audited automatically.
+
+Limits: 3 checks per IP per day, 40 per day in total (`PUBLIC_DAILY_LIMIT` to change). Optional:
+
+| Variable | Use |
+|---|---|
+| `BREVO_API_KEY` (Secret), `MAIL_FROM`, `MAIL_TO` | email a lead alert to you and the result to the person (same values as the website) |
+| `TURNSTILE_SITEKEY`, `TURNSTILE_SECRET` (Secret) | Cloudflare bot check on the form (the widget's hostnames must include this app's domain) |
+| `CONTACT_URL`, `CONTACT_URL_EN` | where the "free full audit" button leads |

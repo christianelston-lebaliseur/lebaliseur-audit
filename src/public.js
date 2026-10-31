@@ -111,6 +111,8 @@ export async function publicCheck(req, env, deps) {
   const top = [...run.plan.now, ...run.plan.month, ...run.plan.quarter]
     .sort((a, b) => b.gain - a.gain).slice(0, 3)
     .map((r) => ({ label: en ? r.label : FR[r.id]?.[0] || r.label, fix: en ? r.fix : FR[r.id]?.[1] || r.fix }));
+  await notify(env, { leadId, en, business: run.google?.name || business, city, email,
+    first_name: (b.first_name || "").trim(), phone: (b.phone || "").trim(), site: run.site, total: run.score.total, top, clientId, reqUrl: req.url });
   return new Response(JSON.stringify({
     business: run.google?.name || business,
     address: run.google?.address || null,
@@ -122,4 +124,37 @@ export async function publicCheck(req, env, deps) {
     sections: Object.entries(run.score.sections).map(([k, s]) => ({ name: SECTION_FR[k][en ? 1 : 0], pct: s.pct })),
     top,
   }), { headers: { "content-type": "application/json", "cache-control": "no-store" } });
+}
+
+// Optional emails through Brevo (same account as the website form):
+// a lead alert to MAIL_TO, and the person's own result. Failures never block the check.
+async function notify(env, d) {
+  if (!env.BREVO_API_KEY || !env.MAIL_FROM || !env.MAIL_TO) return;
+  const e = (x) => String(x ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const send = (payload) => fetch("https://api.brevo.com/v3/smtp/email", {
+    method: "POST",
+    headers: { "api-key": env.BREVO_API_KEY, "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify(payload),
+  }).catch(() => {});
+  const origin = new URL(d.reqUrl).origin;
+  const list = d.top.map((p) => `<li><strong>${e(p.label)}</strong><br>${e(p.fix)}</li>`).join("");
+  await send({
+    sender: { name: "Le Baliseur (diagnostic)", email: env.MAIL_FROM },
+    to: [{ email: env.MAIL_TO }],
+    replyTo: { email: d.email, name: d.first_name || d.business },
+    subject: `Diagnostic en ligne : ${d.business} · ${d.total}/100`,
+    htmlContent: `<h2>Nouveau diagnostic en ligne</h2><p><strong>${e(d.business)}</strong> (${e(d.city)}) · score <strong>${d.total}/100</strong></p>
+      <p>${e(d.first_name)} · ${e(d.email)}${d.phone ? " · " + e(d.phone) : ""}<br>Site : ${e(d.site || "aucun")}</p>
+      <ol>${list}</ol><p><a href="${origin}/#/c/${d.clientId}">Ouvrir le rapport complet</a></p>`,
+  });
+  const en = d.en;
+  await send({
+    sender: { name: "Chris Elston · Le Baliseur", email: env.MAIL_FROM },
+    to: [{ email: d.email, name: d.first_name || undefined }],
+    replyTo: { email: env.MAIL_TO, name: "Chris Elston" },
+    subject: en ? `Your visibility score: ${d.total}/100` : `Votre score de visibilité : ${d.total}/100`,
+    htmlContent: (en
+      ? `<p>Hello${d.first_name ? " " + e(d.first_name) : ""},</p><p>Thanks for running the Le Baliseur visibility check for <strong>${e(d.business)}</strong>. Your score: <strong>${d.total}/100</strong>.</p><p>Your three priorities:</p><ol>${list}</ol><p>The full report covers around thirty checks, your exact map position against three competitors and a step-by-step plan. Just reply to this email if you'd like me to go through it with you, free and with no commitment.</p><p>Chris Elston<br>Le Baliseur · Annecy</p>`
+      : `<p>Bonjour${d.first_name ? " " + e(d.first_name) : ""},</p><p>Merci d'avoir fait le diagnostic de visibilité du Baliseur pour <strong>${e(d.business)}</strong>. Votre score : <strong>${d.total}/100</strong>.</p><p>Vos trois priorités :</p><ol>${list}</ol><p>Le rapport complet comprend une trentaine de points, votre position exacte face à trois concurrents et un plan étape par étape. Répondez simplement à cet e-mail si vous souhaitez que je vous le présente, gratuitement et sans engagement.</p><p>Chris Elston<br>Le Baliseur · Annecy</p>`),
+  });
 }

@@ -75,7 +75,7 @@ section+section{margin-top:16px}
 </div>
 <script>
 const en = new URLSearchParams(location.search).get("lang") === "en";
-const CONTACT = "{{CONTACT_URL}}";
+const CONTACT = en ? "{{CONTACT_URL_EN}}" : "{{CONTACT_URL}}";
 if (new URLSearchParams(location.search).has("embed")) document.body.classList.add("embed");
 document.documentElement.lang = en ? "en" : "fr";
 document.querySelectorAll("[data-fr]").forEach((e) => e.textContent = e.dataset[en ? "en" : "fr"]);

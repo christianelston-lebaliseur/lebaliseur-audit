@@ -181,7 +181,8 @@ export default {
     // Public visibility check (no login), embeddable on lebaliseur.fr.
     if (url.pathname === "/diagnostic" || url.pathname === "/check") {
       const page = CHECK_HTML
-        .replace("{{CONTACT_URL}}", env.CONTACT_URL || "https://lebaliseur.fr/")
+        .replace("{{CONTACT_URL}}", env.CONTACT_URL || "https://lebaliseur.fr/#diagnostic")
+        .replace("{{CONTACT_URL_EN}}", env.CONTACT_URL_EN || "https://lebaliseur.fr/en/#audit")
         .replace("{{TS_SCRIPT}}", env.TURNSTILE_SITEKEY ? '<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>' : "")
         .replace("{{TS_WIDGET}}", env.TURNSTILE_SITEKEY ? `<div class="cf-turnstile" data-sitekey="${env.TURNSTILE_SITEKEY}" style="margin-top:12px"></div>` : "");
       return html(page, 200, { "content-security-policy":
