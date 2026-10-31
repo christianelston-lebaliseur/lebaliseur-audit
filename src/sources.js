@@ -33,7 +33,9 @@ export async function pagespeed(url, key) {
 
 async function placesSearch(textQuery, key, location, pageSize = 20) {
   if (!key) return { error: "Google API key not set" };
-  const body = { textQuery, languageCode: "fr", regionCode: "FR", pageSize };
+  // Include businesses that hide their address and serve an area (home-based trades, consultants…),
+  // which Google leaves out by default.
+  const body = { textQuery, languageCode: "fr", regionCode: "FR", pageSize, includePureServiceAreaBusinesses: true };
   if (location) body.locationBias = { circle: { center: location, radius: 8000 } };
   try {
     const r = await fetch(PLACES, {
