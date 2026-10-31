@@ -6,7 +6,7 @@
 :root{--ink:#1d2a24;--muted:#5d6a63;--green:#24493A;--amber:#F2B23A;--red:#C2410C;--bg:#F6F3EC;--card:#fff;--line:#e3ddd0;--soft:#efeadf}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 system-ui,-apple-system,Segoe UI,sans-serif}
-body.embed{background:transparent}
+body.embed{background:transparent}body.embed .wrap{margin:0;padding:4px 0 8px;max-width:680px}
 .wrap{max-width:640px;margin:0 auto;padding:20px 16px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px}
 h1{font-size:24px;margin:0 0 6px;line-height:1.25}h2{font-size:18px;margin:0 0 10px}
@@ -83,7 +83,7 @@ if (en) document.title = "Visibility check · Le Baliseur";
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const col = (n) => n == null ? "#8a948f" : n >= 80 ? "#2e7d57" : n >= 50 ? "#c98a12" : "#C2410C";
-function resize() { try { parent.postMessage({baliseurAuditHeight: document.documentElement.scrollHeight}, "*"); } catch (e) {} }
+function resize() { try { parent.postMessage({baliseurAuditHeight: Math.ceil(document.querySelector(".wrap").getBoundingClientRect().height)}, "*"); } catch (e) {} }
 new ResizeObserver(resize).observe(document.body);
 
 let timer;

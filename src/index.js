@@ -186,7 +186,7 @@ export default {
         .replace("{{TS_SCRIPT}}", env.TURNSTILE_SITEKEY ? '<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>' : "")
         .replace("{{TS_WIDGET}}", env.TURNSTILE_SITEKEY ? `<div class="cf-turnstile" data-sitekey="${env.TURNSTILE_SITEKEY}" style="margin-top:12px"></div>` : "");
       return html(page, 200, { "content-security-policy":
-        "frame-ancestors 'self' https://lebaliseur.fr https://www.lebaliseur.fr https://lebaliseur.com https://www.lebaliseur.com https://*.workers.dev" });
+        "frame-ancestors 'self' https://lebaliseur.fr https://www.lebaliseur.fr https://lebaliseur.com https://www.lebaliseur.com https://*.workers.dev " + (env.FRAME_EXTRA || "") });
     }
     if (url.pathname === "/public/check" && req.method === "POST") {
       try { return await publicCheck(req, env, { db, audit, saveRun, findBusiness }); }
