@@ -69,7 +69,7 @@ async function perplexity(env, q, city) {
 
 // Gemini: generateContent grounded with Google Search (closest to Google's AI answers).
 async function gemini(env, q) {
-  const model = env.GEMINI_MODEL || "gemini-3.5-flash";
+  const model = env.GEMINI_MODEL || "gemini-3.8-flash";
   const j = await post(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
     { "x-goog-api-key": env.GEMINI_API_KEY },
     { contents: [{ role: "user", parts: [{ text: q }] }], tools: [{ google_search: {} }] });
