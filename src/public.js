@@ -7,6 +7,7 @@ const SECTION_FR = {
   local: ["Fiche Google & local", "Local & Google profile"],
   aeo: ["Visibilité dans les IA", "AI search readiness"],
   trust: ["Confiance & contact", "Trust & conversion"],
+  aivis: ["Recommandé par les IA", "Recommended by AI"],
 };
 
 // French wording for each check: [label, fix]. English comes from checks.js.
@@ -39,6 +40,9 @@ const FR = {
   privacy: ["Politique de confidentialité", "Ajouter une page confidentialité (RGPD)."],
   contact: ["Appel en un clic & contact", "Rendre le numéro cliquable et ajouter une page contact claire."],
   booking: ["Réservation en ligne", "Mettre le lien de réservation (Doctolib, Zenchef…) sur chaque page."],
+  ai_recommended: ["Cité quand on demande à une IA", "Être présent et bien noté sur les sites que ChatGPT et Perplexity consultent pour votre activité, et répondre aux mêmes questions sur votre site."],
+  ai_known: ["Connu des IA sous votre nom", "Utiliser exactement le même nom, la même adresse et la même description partout : site, fiche Google, annuaires."],
+  ai_cited: ["Votre site cité comme source", "Répondre clairement sur votre site aux questions de vos clients (approche, tarifs, accès, FAQ)."],
 };
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
@@ -104,7 +108,7 @@ export async function publicCheck(req, env, deps) {
     clientId = c.meta.last_row_id;
   }
   const client = await D.prepare("SELECT * FROM clients WHERE id=?").bind(clientId).first();
-  const run = await deps.saveRun(env, clientId, await deps.audit(env, client));
+  const run = await deps.saveRun(env, clientId, await deps.audit(env, client, { public: true }));
   await D.prepare("UPDATE leads SET status='done', client_id=?, run_id=?, total=? WHERE id=?")
     .bind(clientId, run.id, run.score.total, leadId).run();
 
@@ -121,7 +125,7 @@ export async function publicCheck(req, env, deps) {
     site: run.site || null,
     total: run.score.total,
     coverage: run.score.coverage,
-    sections: Object.entries(run.score.sections).map(([k, s]) => ({ name: SECTION_FR[k][en ? 1 : 0], pct: s.pct })),
+    sections: Object.entries(run.score.sections).map(([k, s]) => ({ name: (SECTION_FR[k] || [k, k])[en ? 1 : 0], pct: s.pct })),
     top,
   }), { headers: { "content-type": "application/json", "cache-control": "no-store" } });
 }

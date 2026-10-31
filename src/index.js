@@ -8,6 +8,7 @@ import APP_HTML from "./app.html";
 import LOGIN_HTML from "./login.html";
 import CHECK_HTML from "./check.html";
 import { publicCheck } from "./public.js";
+import { aiPrompts, askAi, analyseAi } from "./ai.js";
 
 const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS clients (
@@ -29,6 +30,8 @@ async function db(env) {
     await env.DB.batch(SCHEMA.map((s) => env.DB.prepare(s)));
     // Added after first release: prospects (from the public check) are kept apart from clients.
     try { await env.DB.prepare("ALTER TABLE clients ADD COLUMN prospect INTEGER DEFAULT 0").run(); } catch { /* exists */ }
+    // Custom questions to ask the AI assistants, one per line.
+    try { await env.DB.prepare("ALTER TABLE clients ADD COLUMN ai_prompts TEXT").run(); } catch { /* exists */ }
     ready = true;
   }
   return env.DB;
@@ -54,7 +57,20 @@ async function authed(req, env) {
 }
 
 // ---- The audit itself ----
-export async function audit(env, client) {
+// opts.public: the public check asks fewer questions of cheaper engines (AI_PUBLIC_ENGINES).
+function aiPlan(env, client, place, opts = {}) {
+  if (opts.public && env.AI_PUBLIC === "off") return { prompts: [], skip: "AI check off for the public check" };
+  return {
+    prompts: aiPrompts(client, place, opts.public ? 1 : 3),
+    only: opts.public ? (env.AI_PUBLIC_ENGINES || "perplexity").split(",").map((x) => x.trim()) : null,
+  };
+}
+function aiContext(client, place, site, rank) {
+  return { names: [client.name, place?.name], siteHost: site ? normHost(new URL(site).hostname) : "",
+    city: client.city || "", category: client.category || place?.category || "", competitors: rank?.competitors || [] };
+}
+
+export async function audit(env, client, opts = {}) {
   const key = env.GOOGLE_API_KEY;
   const google = client.place_id ? await placeById(client.place_id, key)
     : await findBusiness(client.name, client.city, key);
@@ -62,14 +78,17 @@ export async function audit(env, client) {
   let site = client.site || place?.website || "";
   if (site && !/^https?:\/\//.test(site)) site = "https://" + site;
   const query = client.query || [client.category, client.city].filter(Boolean).join(" ");
-  const [crawlRes, psi, rank] = await Promise.all([
+  const ap = aiPlan(env, client, place, opts);
+  const [crawlRes, psi, rank, aiRaw] = await Promise.all([
     site ? crawl(site, client.city, 25, streetOf(place?.address))
       : { site: { reachable: false }, pages: [], errors: ["No website known"] },
     site ? pagespeed(site, key) : { error: "no website" },
     place && query ? mapRank(place.id, query, key, place.location) : { error: place ? "no search set" : "no profile" },
+    ap.skip ? { error: ap.skip } : askAi(env, ap.prompts, client.city, { only: ap.only }),
   ]);
+  const ai = analyseAi(aiRaw, aiContext(client, place, site, rank));
   const ctx = { crawl: crawlRes, pagespeed: psi, google, rank, city: client.city || "",
-    category: client.category || "", siteHost: site ? normHost(new URL(site).hostname) : "" };
+    category: client.category || "", siteHost: site ? normHost(new URL(site).hostname) : "", ai };
   const results = runChecks(ctx);
   const sc = score(results);
   const pages = crawlRes.pages.map((p) => ({ url: p.url, status: p.status, title: p.title, words: p.words,
@@ -77,7 +96,7 @@ export async function audit(env, client) {
   return {
     date: new Date().toISOString(), site, query, score: sc, results, plan: plan(results),
     google: place || null, google_error: google.error || null, rank, pagespeed: psi,
-    site_facts: crawlRes.site, crawl_errors: crawlRes.errors, pages,
+    site_facts: crawlRes.site, crawl_errors: crawlRes.errors, pages, ai,
   };
 }
 
@@ -163,6 +182,23 @@ async function api(req, env, url) {
         D.prepare("DELETE FROM clients WHERE id=?").bind(id)]);
       return json({ ok: true });
     }
+  }
+  if ((mm = path.match(/^\/api\/clients\/(\d+)\/ai-prompts$/)) && m === "PUT") {
+    const b = await req.json();
+    const lines = String(b.ai_prompts || "").split("\n").map((x) => x.trim()).filter(Boolean).slice(0, 6);
+    await D.prepare("UPDATE clients SET ai_prompts=? WHERE id=?").bind(lines.join("\n"), +mm[1]).run();
+    return json({ ok: true });
+  }
+  // Ask the AI assistants only (no crawl, nothing saved): to test keys or try new questions.
+  if ((mm = path.match(/^\/api\/clients\/(\d+)\/ai$/)) && m === "POST") {
+    const client = await D.prepare("SELECT * FROM clients WHERE id=?").bind(+mm[1]).first();
+    if (!client) return json({ error: "client not found" }, 404);
+    const last = await D.prepare("SELECT data FROM runs WHERE client_id=? ORDER BY date DESC LIMIT 1").bind(client.id).first();
+    const L = last ? JSON.parse(last.data) : {};
+    const place = L.google || null;
+    const ap = aiPlan(env, client, place);
+    const ai = analyseAi(await askAi(env, ap.prompts, client.city), aiContext(client, place, L.site || client.site, L.rank));
+    return json({ ai, test: true });
   }
   if ((mm = path.match(/^\/api\/clients\/(\d+)\/audit$/)) && m === "POST") {
     return json(await runClient(env, +mm[1]));

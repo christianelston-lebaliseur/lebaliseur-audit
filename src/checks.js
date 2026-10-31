@@ -6,6 +6,7 @@ export const SECTIONS = {
   local: "Local & Google profile",
   aeo: "AI search readiness",
   trust: "Trust & conversion",
+  aivis: "Recommended by AI assistants",
 };
 
 export const plain = (s) => (s || "").normalize("NFD").replace(/[̀-ͯ]/g, "")
@@ -42,7 +43,7 @@ export function runChecks(ctx) {
 
   const add = (id, section, label, points, fn, fix, effort) => {
     let fraction = null, detail = "";
-    if (section !== "local" && !site.reachable) detail = "website unreachable";
+    if (!["local", "aivis"].includes(section) && !site.reachable) detail = "website unreachable";
     else {
       try { [fraction, detail] = fn(); } catch (e) { detail = `could not check (${e.message})`; }
     }
@@ -176,6 +177,30 @@ export function runChecks(ctx) {
       return [b.length ? 1 : 0, b.join(", ") || "none"];
     },
     "Link the booking tool (Doctolib, Zenchef…) prominently on every page.", "S");
+
+  // ---------- Recommended by AI assistants (15) ----------
+  // Real answers from ChatGPT / Perplexity / Gemini with web search (see ai.js).
+  const ai = ctx.ai || {};
+  const noAi = () => [null, ai.error || "not checked"];
+  const engines = Object.values(ai.per_engine || {});
+  const doms = (ai.top_domains || []).slice(0, 4).map((d) => d.name);
+  add("ai_recommended", "aivis", "Named when people ask AI for this service", 10,
+    () => ai.generic_total ? [ai.generic_named / ai.generic_total,
+      `named in ${ai.generic_named} of ${ai.generic_total} answers (` +
+      engines.filter((e) => e.of).map((e) => `${e.label} ${e.named}/${e.of}`).join(", ") + ")" +
+      (ai.competitors_named?.length ? "; competitors named: " + ai.competitors_named.map((c) => `${c.name} ×${c.n}`).join(", ") : "")]
+      : noAi(),
+    doms.length ? `Get listed, with reviews, on the sites these assistants rely on for this search (${doms.join(", ")}), then answer the same questions on your own site.`
+      : "Get listed and reviewed on the main directories for your activity, and answer clients' questions on your own site.", "L");
+  add("ai_known", "aivis", "AI assistants know the business when asked by name", 3,
+    () => ai.branded_total ? [ai.branded_known / ai.branded_total,
+      engines.filter((e) => e.knows !== null).map((e) => `${e.label} ${e.knows ? "knows it" : "doesn't"}`).join(", ")]
+      : noAi(),
+    "Use exactly the same name, address and description on your site, Google profile and every directory, so assistants can identify you.", "M");
+  add("ai_cited", "aivis", "Own website used as a source", 2,
+    () => ai.answered ? [Math.min(1, ai.cited_site / Math.max(1, Math.ceil(ai.answered / 2))),
+      `cited in ${ai.cited_site} of ${ai.answered} answers`] : noAi(),
+    "Answer clients' questions plainly on the site (approach, prices, access, FAQ) so assistants quote it.", "M");
   return R;
 }
 

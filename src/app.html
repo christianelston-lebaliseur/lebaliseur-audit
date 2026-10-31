@@ -43,6 +43,9 @@ input,textarea{width:100%;font:inherit;padding:10px;border-radius:9px;border:1px
 .empty{text-align:center;padding:40px 10px}
 .clientrow{cursor:pointer}.clientrow:hover{background:var(--soft)}
 .chg li{margin-bottom:6px}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}.chip{background:var(--soft);border-radius:9px;padding:6px 10px;font-size:13px}
+details{border-top:1px solid var(--line);padding:8px 0}summary{cursor:pointer;font-size:13px;font-weight:600}
+.answer{font-size:13px;white-space:pre-wrap;margin:8px 0;max-height:320px;overflow:auto;background:var(--soft);border-radius:9px;padding:10px}
 @media print{header,.noprint{display:none!important}body{background:#fff;color:#000}.card{break-inside:avoid;border-color:#ccc}main{padding:0}}
 </style></head><body>
 <header><h1 onclick="location.hash=''"><span class="post"></span>Le Baliseur Audit</h1>
@@ -155,7 +158,7 @@ async function show(id, autorun) {
   const d = await api("/api/clients/" + id);
   const c = d.client, L = d.latest, S = d.sectionNames;
   let h = '<div class="row noprint" style="margin-bottom:12px;flex-wrap:wrap"><a href="#" class="btn">← All clients</a><span style="display:flex;gap:8px;flex-wrap:wrap">' +
-    '(c.prospect ? '<button onclick="convert(' + id + ')">Make client</button>' : "") + '<button onclick="window.print()">Print / PDF</button><button onclick="del(' + id + ')">Delete</button><button class="primary" id="runbtn" onclick="runAudit(' + id + ', this)">Run audit now</button></span></div>' +
+    (c.prospect ? '<button onclick="convert(' + id + ')">Make client</button>' : "") + '<button onclick="window.print()">Print / PDF</button><button onclick="del(' + id + ')">Delete</button><button class="primary" id="runbtn" onclick="runAudit(' + id + ', this)">Run audit now</button></span></div>' +
     '<div class="card"><h2 style="font-size:22px;margin:0">' + esc(c.name) + (c.prospect ? ' <span class="gain">PROSPECT</span>' : "") + '</h2><div class="muted">' + esc([c.category, c.city].filter(Boolean).join(" · ")) +
     (L?.site ? ' · <a href="' + esc(L.site) + '" target="_blank" rel="noopener">' + esc(L.site.replace(/^https?:\/\//, "")) + '</a>' : "") +
     (L?.google?.maps_url ? ' · <a href="' + esc(L.google.maps_url) + '" target="_blank" rel="noopener">Google Maps</a>' : "") + '</div></div>';
@@ -193,6 +196,8 @@ async function show(id, autorun) {
     (rk.competitors?.length ? '<h3>Ahead or around</h3><table><thead><tr><th>Competitor</th><th>Rating</th><th>Site</th></tr></thead>' + rk.competitors.map((x) => '<tr><td>' + esc(x.name) + '</td><td>' + (x.rating ?? "–") + '★ (' + x.reviews + ')</td><td class="small">' + (x.website ? '<a href="' + esc(x.website) + '" target="_blank" rel="noopener">site</a>' : "none") + '</td></tr>').join("") + '</table>' : "")
     : '<p class="muted">' + esc(rk.error || "Not checked") + '</p>') + '</div></div>';
 
+  h += '<div class="card" id="aicard">' + aiCard(L.ai) + '</div>' + aiEditor(id, c.ai_prompts);
+
   h += '<div class="card"><h2>All checks</h2><div class="tablewrap"><table><thead><tr><th></th><th>Check</th><th>Finding</th><th>Points</th></tr></thead><tbody>' +
     Object.keys(S).map((k) => '<tr><th colspan="4" style="padding-top:16px">' + S[k] + '</th></tr>' + L.results.filter((r) => r.section === k).map((r) =>
       '<tr><td>' + status(r.fraction) + '</td><td>' + esc(r.label) + '</td><td class="small">' + esc(r.detail) + '</td><td>' + (r.earned ?? "–") + '/' + r.points + '</td></tr>').join("")).join("") +
@@ -205,6 +210,47 @@ async function show(id, autorun) {
     L.pages.map((p) => '<tr><td class="small"><a href="' + esc(p.url) + '" target="_blank" rel="noopener">' + esc(p.url.replace(/^https?:\/\/[^/]+/, "") || "/") + '</a>' + (p.status !== 200 ? ' <span class="down">' + p.status + '</span>' : "") + '</td><td class="small">' + esc(p.title || "–") + '</td><td>' + (p.words ?? "") + '</td><td>' + (p.h1 ? p.h1.length : "") + '</td></tr>').join("") +
     '</tbody></table></div></div>';
   $("#main").innerHTML = h;
+}
+// ---------- AI assistants ----------
+const ENG = {chatgpt: "ChatGPT", perplexity: "Perplexity", gemini: "Gemini"};
+function aiCard(ai, test) {
+  let h = '<h2>What AI assistants answer' + (test ? ' <span class="gain">TEST · NOT SAVED</span>' : '') + '</h2>';
+  if (!ai || ai.error) return h + '<p class="muted small">Not checked' + (ai?.error ? ': ' + esc(ai.error) : '') +
+    '. Add at least one of the secrets PERPLEXITY_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY to the Worker.</p>';
+  h += '<div class="chips">' + Object.values(ai.per_engine).map((e) => '<span class="chip"><strong>' + esc(e.label) + '</strong> named ' + e.named + '/' + e.of +
+    (e.knows === null ? '' : ' · ' + (e.knows ? 'knows you ✓' : "doesn't know you")) + (e.errors ? ' · <span class="down">' + e.errors + ' failed</span>' : '') + '</span>').join('') + '</div>';
+  const qs = [...new Set(ai.answers.map((a) => a.q))];
+  h += '<div class="tablewrap"><table><thead><tr><th>Question</th>' + ai.engines.map((e) => '<th>' + ENG[e] + '</th>').join('') + '</tr></thead><tbody>' +
+    qs.map((q) => '<tr><td class="small">' + esc(q) + '</td>' + ai.engines.map((e) => {
+      const a = ai.answers.find((x) => x.q === q && x.engine === e);
+      if (!a || a.error) return '<td title="' + esc(a?.error) + '"><span class="st na">⚠</span></td>';
+      return '<td>' + (a.named ? '<span class="st ok">✓</span>' + (a.position ? ' #' + a.position : '') : '<span class="st bad">✗</span>') +
+        (a.cites_site ? '<div class="small muted">site cited</div>' : '') + '</td>';
+    }).join('') + '</tr>').join('') + '</tbody></table></div>';
+  h += '<div class="grid g2" style="margin-top:12px"><div><h3>Sites they rely on</h3>' + (ai.top_domains.length ? '<ul class="small">' + ai.top_domains.map((d) => '<li>' + esc(d.name) + ' <span class="muted">×' + d.n + '</span></li>').join('') + '</ul><p class="muted small">Being listed and reviewed on these is the fastest way into the answers.</p>' : '<p class="muted small">No sources returned.</p>') +
+    '</div><div><h3>Map competitors they name</h3>' + (ai.competitors_named.length ? '<ul class="small">' + ai.competitors_named.map((c) => '<li>' + esc(c.name) + ' <span class="muted">×' + c.n + '</span></li>').join('') + '</ul>' : '<p class="muted small">None of the top map competitors.</p>') + '</div></div>';
+  if (ai.errors?.length) h += '<p class="small down">' + esc(ai.errors.join(' · ')) + '</p>';
+  h += '<h3 style="margin-top:12px">Full answers</h3>' + ai.answers.map((a) => '<details><summary>' + ENG[a.engine] + ' · ' + esc(a.q) + (a.error ? ' ⚠' : a.named ? ' ✓' : ' ✗') + '</summary>' +
+    (a.error ? '<p class="small down">' + esc(a.error) + '</p>' : '<div class="answer">' + esc(a.text) + '</div>' +
+    (a.sources.length ? '<div class="small">Sources: ' + a.sources.map((x) => '<a href="' + esc(x.url) + '" target="_blank" rel="noopener">' + esc(x.domain) + '</a>').join(', ') + '</div>' : '')) + '</details>').join('');
+  return h;
+}
+function aiEditor(id, prompts) {
+  return '<div class="card noprint"><h3>Questions to ask the AI assistants</h3><p class="muted small">One per line, up to 3 (more are ignored). Leave empty for the defaults built from the activity and town. A question about the business by name is always added.</p>' +
+    '<textarea id="ai-q" rows="3" placeholder="e.g. Quel psychologue à Annecy pour l\'anxiété ?">' + esc(prompts || '') + '</textarea>' +
+    '<div class="actions"><button onclick="saveAiQ(' + id + ', this)">Save questions</button><button class="primary" onclick="testAi(' + id + ', this)">Ask the AIs now</button></div></div>';
+}
+async function saveAiQ(id, b) {
+  b.disabled = true;
+  try { await api("/api/clients/" + id + "/ai-prompts", {method: "PUT", body: JSON.stringify({ai_prompts: $("#ai-q").value})}); b.textContent = "Saved ✓"; }
+  catch (e) { alert(e.message); }
+  b.disabled = false;
+}
+async function testAi(id, b) {
+  b.disabled = true; b.innerHTML = '<span class="spin"></span>Asking… (up to a minute)';
+  try { await saveAiQ(id, {}); const r = await api("/api/clients/" + id + "/ai", {method: "POST"}); $("#aicard").innerHTML = aiCard(r.ai, true); $("#aicard").scrollIntoView({behavior: "smooth"}); }
+  catch (e) { alert("AI check failed: " + e.message); }
+  b.disabled = false; b.textContent = "Ask the AIs now";
 }
 async function delLead(id) {
   if (!confirm("Delete this lead's contact details? (The audit itself stays under the prospect.)")) return;
