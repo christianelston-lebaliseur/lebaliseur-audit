@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex"><title>Le Baliseur · Audit</title>
+<style>
+:root{--ink:#1d2a24;--muted:#5d6a63;--green:#24493A;--green2:#3c7a5f;--amber:#F2B23A;--red:#C2410C;
+  --bg:#F6F3EC;--card:#fff;--line:#e3ddd0;--soft:#efeadf}
+@media (prefers-color-scheme:dark){:root{--ink:#ece8df;--muted:#9aa69f;--bg:#121815;--card:#1b231f;--line:#2c3832;--soft:#232d28;--green:#7fb69a;--green2:#7fb69a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}
+a{color:var(--green2)}
+header{display:flex;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid var(--line);background:var(--card);position:sticky;top:0;z-index:5}
+header h1{font-size:18px;margin:0;flex:1;cursor:pointer}
+.post{display:inline-block;width:9px;height:20px;background:var(--amber);border-radius:2px;margin-right:8px;vertical-align:-3px}
+main{max-width:1060px;margin:0 auto;padding:20px 16px 60px}
+button,.btn{font:inherit;font-weight:600;padding:9px 14px;border-radius:9px;border:1px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer;text-decoration:none;display:inline-block}
+button.primary{background:var(--green);border-color:var(--green);color:#fff}
+@media (prefers-color-scheme:dark){button.primary{color:#0f1512}}
+button:disabled{opacity:.55;cursor:wait}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;margin-bottom:16px}
+h2{font-size:17px;margin:0 0 12px}h3{font-size:15px;margin:0 0 8px}
+.muted{color:var(--muted)}.small{font-size:13px}
+table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);font-weight:600}
+.tablewrap{overflow-x:auto}
+.badge{display:inline-grid;place-items:center;min-width:44px;height:30px;border-radius:8px;font-weight:700;color:#fff;padding:0 8px}
+.delta{font-size:13px;font-weight:600}.up{color:#2e8b57}.down{color:var(--red)}
+.grid{display:grid;gap:16px}
+@media(min-width:760px){.g2{grid-template-columns:1fr 1fr}.g3{grid-template-columns:repeat(3,1fr)}.hero{grid-template-columns:220px 1fr}}
+.gauge{text-align:center}.gauge svg{width:180px;height:180px}
+.bar{height:10px;background:var(--soft);border-radius:6px;overflow:hidden;margin:4px 0 12px}.bar i{display:block;height:100%;border-radius:6px}
+.row{display:flex;justify-content:space-between;gap:8px}
+.plan li{margin-bottom:10px}.plan ul{padding-left:18px;margin:0}
+.gain{font-size:12px;font-weight:700;background:var(--soft);border-radius:6px;padding:1px 6px;margin-left:4px;white-space:nowrap}
+.st{font-weight:700}.st.ok{color:#2e8b57}.st.part{color:#b7791f}.st.bad{color:var(--red)}.st.na{color:var(--muted)}
+dialog{border:1px solid var(--line);border-radius:14px;background:var(--card);color:var(--ink);width:min(520px,94vw);padding:20px}
+dialog::backdrop{background:rgba(0,0,0,.4)}
+label{display:block;font-size:13px;font-weight:600;margin:10px 0 4px}
+input,textarea{width:100%;font:inherit;padding:10px;border-radius:9px;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
+.actions{display:flex;gap:8px;justify-content:flex-end;margin-top:16px;flex-wrap:wrap}
+.found{background:var(--soft);border-radius:10px;padding:12px;margin-top:12px}
+.spin{display:inline-block;width:14px;height:14px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:s 1s linear infinite;vertical-align:-2px;margin-right:6px}
+@keyframes s{to{transform:rotate(360deg)}}
+.empty{text-align:center;padding:40px 10px}
+.clientrow{cursor:pointer}.clientrow:hover{background:var(--soft)}
+.chg li{margin-bottom:6px}
+@media print{header,.noprint{display:none!important}body{background:#fff;color:#000}.card{break-inside:avoid;border-color:#ccc}main{padding:0}}
+</style></head><body>
+<header><h1 onclick="location.hash=''"><span class="post"></span>Le Baliseur Audit</h1>
+<button class="primary noprint" onclick="openAdd()">+ Client</button>
+<a class="btn noprint" href="/logout">Sign out</a></header>
+<main id="main"></main>
+
+<dialog id="add"><form onsubmit="return false">
+<h2>New client</h2>
+<label>Business name</label><input id="f-name" placeholder="e.g. Caroline Lillaz psychologue" required>
+<div class="grid g2"><div><label>Town</label><input id="f-city" value="Annecy"></div>
+<div><label>Activity (for the map search)</label><input id="f-cat" placeholder="e.g. psychologue"></div></div>
+<label>Website <span class="muted">(optional, found on Google if empty)</span></label><input id="f-site" placeholder="https://…">
+<label>Main search to track <span class="muted">(optional, default “activity town”)</span></label><input id="f-query" placeholder="e.g. psychologue Annecy">
+<div id="f-found"></div>
+<div class="actions"><button type="button" onclick="add.close()">Cancel</button>
+<button type="button" id="f-look" onclick="lookup()">Find on Google</button>
+<button type="button" class="primary" id="f-go" onclick="createClient()">Add &amp; audit</button></div>
+</form></dialog>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const col = (n) => n == null ? "#8a948f" : n >= 80 ? "#2e7d57" : n >= 50 ? "#c98a12" : "#C2410C";
+const fmtDate = (d) => d ? new Date(d).toLocaleDateString("en-GB", {day:"numeric", month:"short", year:"numeric"}) : "–";
+let found = null;
+
+async function api(path, opts = {}) {
+  const r = await fetch(path, {headers: {"content-type": "application/json"}, ...opts});
+  if (r.status === 401) { location.reload(); throw new Error("login"); }
+  const j = await r.json();
+  if (!r.ok || j.error && !j.date && !j.place) throw new Error(j.error || "Error " + r.status);
+  return j;
+}
+
+// ---------- Client list ----------
+async function list() {
+  $("#main").innerHTML = '<p class="muted"><span class="spin"></span>Loading…</p>';
+  const cs = await api("/api/clients");
+  if (!cs.length) {
+    $("#main").innerHTML = '<div class="card empty"><h2>No clients yet</h2><p class="muted">Add a business name and the tool does the rest: Google profile, map position, site crawl, speed test, score and plan.</p><button class="primary" onclick="openAdd()">+ Add the first client</button></div>';
+    return;
+  }
+  $("#main").innerHTML = '<div class="card"><h2>Clients</h2><div class="tablewrap"><table><thead><tr><th>Score</th><th>Business</th><th>Search tracked</th><th>Last audit</th><th></th></tr></thead><tbody>' +
+    cs.map((c) => {
+      const d = c.total != null && c.prev_total != null ? c.total - c.prev_total : null;
+      return '<tr class="clientrow" onclick="location.hash=\'#/c/' + c.id + '\'"><td><span class="badge" style="background:' + col(c.total) + '">' + (c.total ?? "–") + '</span> ' +
+        (d ? '<span class="delta ' + (d > 0 ? "up" : "down") + '">' + (d > 0 ? "+" : "") + d + '</span>' : "") +
+        '</td><td><strong>' + esc(c.name) + '</strong><div class="muted small">' + esc(c.site || "website not set") + '</div></td><td>' +
+        esc(c.query || [c.category, c.city].filter(Boolean).join(" ")) + '</td><td>' + fmtDate(c.last_date) + '</td><td class="noprint"><button onclick="event.stopPropagation();runAudit(' + c.id + ', this)">Audit now</button></td></tr>';
+    }).join("") + '</tbody></table></div><p class="muted small">Every client is re-audited automatically about once a month.</p></div>';
+}
+
+// ---------- Add client ----------
+function openAdd() { found = null; $("#f-found").innerHTML = ""; ["name","site","query","cat"].forEach((k) => $("#f-" + k).value = ""); add.showModal(); }
+async function lookup() {
+  const b = $("#f-look"); b.disabled = true; b.innerHTML = '<span class="spin"></span>Searching';
+  try {
+    const r = await api("/api/lookup", {method: "POST", body: JSON.stringify({name: $("#f-name").value, city: $("#f-city").value})});
+    found = r.place;
+    $("#f-found").innerHTML = '<div class="found"><strong>' + esc(found.name) + '</strong> · ' + esc(found.category || "") +
+      '<div class="small">' + esc(found.address) + '</div><div class="small">' + (found.website ? esc(found.website) : "No website on Google") +
+      ' · ' + (found.rating ?? "–") + '★ (' + found.reviews + ')</div><div class="small muted">Not the right one? Add more of the name or the street, then search again.</div></div>';
+    if (!$("#f-site").value && found.website) $("#f-site").value = found.website;
+  } catch (e) { $("#f-found").innerHTML = '<div class="found">' + esc(e.message) + '. You can still add it with a website.</div>'; }
+  b.disabled = false; b.textContent = "Find on Google";
+}
+async function createClient() {
+  if (!$("#f-name").value.trim()) return $("#f-name").focus();
+  const b = $("#f-go"); b.disabled = true;
+  const r = await api("/api/clients", {method: "POST", body: JSON.stringify({
+    name: $("#f-name").value, city: $("#f-city").value, category: $("#f-cat").value,
+    site: $("#f-site").value, query: $("#f-query").value, place_id: found?.id})});
+  b.disabled = false; add.close();
+  location.hash = "#/c/" + r.id + "/run";
+}
+
+// ---------- Audit ----------
+async function runAudit(id, btn) {
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spin"></span>Auditing… (about a minute)'; }
+  try { await api("/api/clients/" + id + "/audit", {method: "POST"}); }
+  catch (e) { alert("Audit failed: " + e.message); }
+  if (location.hash === "#/c/" + id) show(id); else location.hash = "#/c/" + id;
+}
+
+// ---------- Client report ----------
+function gauge(n) {
+  const r = 70, c = 2 * Math.PI * r, f = (n || 0) / 100;
+  return '<svg viewBox="0 0 180 180"><circle cx="90" cy="90" r="' + r + '" fill="none" stroke="var(--soft)" stroke-width="16"/>' +
+    '<circle cx="90" cy="90" r="' + r + '" fill="none" stroke="' + col(n) + '" stroke-width="16" stroke-linecap="round" stroke-dasharray="' + (c * f) + ' ' + c + '" transform="rotate(-90 90 90)"/>' +
+    '<text x="90" y="98" text-anchor="middle" font-size="44" font-weight="700" fill="currentColor">' + (n ?? "–") + '</text><text x="90" y="122" text-anchor="middle" font-size="13" fill="var(--muted)">out of 100</text></svg>';
+}
+function history(runs) {
+  if (runs.length < 2) return '<p class="muted small">The score history appears after the second audit.</p>';
+  const W = 600, H = 160, P = 28, xs = (i) => P + i * (W - 2 * P) / (runs.length - 1), ys = (v) => H - P - v / 100 * (H - 2 * P);
+  const pts = runs.map((r, i) => xs(i) + "," + ys(r.total)).join(" ");
+  return '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;height:auto">' +
+    [0, 50, 100].map((v) => '<line x1="' + P + '" x2="' + (W - P) + '" y1="' + ys(v) + '" y2="' + ys(v) + '" stroke="var(--line)"/><text x="4" y="' + (ys(v) + 4) + '" font-size="11" fill="var(--muted)">' + v + '</text>').join("") +
+    '<polyline points="' + pts + '" fill="none" stroke="var(--green2)" stroke-width="3"/>' +
+    runs.map((r, i) => '<circle cx="' + xs(i) + '" cy="' + ys(r.total) + '" r="4" fill="var(--green2)"/><text x="' + xs(i) + '" y="' + (ys(r.total) - 9) + '" font-size="12" text-anchor="middle" fill="currentColor">' + r.total + '</text><text x="' + xs(i) + '" y="' + (H - 6) + '" font-size="10" text-anchor="middle" fill="var(--muted)">' + new Date(r.date).toLocaleDateString("en-GB", {month: "short", year: "2-digit"}) + '</text>').join("") + '</svg>';
+}
+const status = (f) => f == null ? '<span class="st na">–</span>' : f >= 0.95 ? '<span class="st ok">✓</span>' : f >= 0.4 ? '<span class="st part">◐</span>' : '<span class="st bad">✗</span>';
+
+async function show(id, autorun) {
+  $("#main").innerHTML = '<p class="muted"><span class="spin"></span>Loading…</p>';
+  const d = await api("/api/clients/" + id);
+  const c = d.client, L = d.latest, S = d.sectionNames;
+  let h = '<div class="row noprint" style="margin-bottom:12px;flex-wrap:wrap"><a href="#" class="btn">← All clients</a><span style="display:flex;gap:8px;flex-wrap:wrap">' +
+    '<button onclick="window.print()">Print / PDF</button><button onclick="del(' + id + ')">Delete</button><button class="primary" id="runbtn" onclick="runAudit(' + id + ', this)">Run audit now</button></span></div>' +
+    '<div class="card"><h2 style="font-size:22px;margin:0">' + esc(c.name) + '</h2><div class="muted">' + esc([c.category, c.city].filter(Boolean).join(" · ")) +
+    (L?.site ? ' · <a href="' + esc(L.site) + '" target="_blank" rel="noopener">' + esc(L.site.replace(/^https?:\/\//, "")) + '</a>' : "") +
+    (L?.google?.maps_url ? ' · <a href="' + esc(L.google.maps_url) + '" target="_blank" rel="noopener">Google Maps</a>' : "") + '</div></div>';
+  if (!L) {
+    $("#main").innerHTML = h + '<div class="card empty"><h2>No audit yet</h2><p class="muted">Run the first audit to get the baseline score.</p></div>';
+    if (autorun) runAudit(id, $("#runbtn"));
+    return;
+  }
+  const sc = L.score;
+  h += '<div class="grid hero"><div class="card gauge">' + gauge(sc.total) + '<div class="small muted">Audited ' + fmtDate(L.date) +
+    (sc.coverage < 100 ? '<br>' + sc.coverage + '% of checks could run' : "") + '</div></div><div class="card"><h2>By area</h2>' +
+    Object.entries(S).map(([k, name]) => {
+      const s = sc.sections[k];
+      return '<div class="row"><span>' + name + '</span><strong>' + (s.pct == null ? "not checked" : s.pct + "%") + '</strong></div><div class="bar"><i style="width:' + (s.pct || 0) + '%;background:' + col(s.pct) + '"></i></div>';
+    }).join("") + '</div></div>';
+
+  if (L.changes) {
+    const ch = L.changes, dd = ch.total_delta;
+    h += '<div class="card"><h2>Since ' + fmtDate(ch.prev_date) + ': <span class="' + (dd >= 0 ? "up" : "down") + '">' + (dd > 0 ? "+" : "") + dd + ' points</span></h2><div class="grid g2"><div><h3>Improved</h3>' +
+      (ch.fixed.length ? '<ul class="chg">' + ch.fixed.map((x) => '<li><strong>' + esc(x.label) + '</strong><div class="small muted">' + esc(x.to) + '</div></li>').join("") + '</ul>' : '<p class="muted small">Nothing yet.</p>') +
+      '</div><div><h3>Got worse</h3>' + (ch.worse.length ? '<ul class="chg">' + ch.worse.map((x) => '<li><strong>' + esc(x.label) + '</strong><div class="small muted">' + esc(x.to) + '</div></li>').join("") + '</ul>' : '<p class="muted small">Nothing.</p>') + '</div></div></div>';
+  }
+  h += '<div class="card"><h2>Score over time</h2>' + history(d.runs) + '</div>';
+
+  const P = L.plan;
+  const pl = (arr) => arr.length ? '<ul>' + arr.map((r) => '<li><strong>' + esc(r.label) + '</strong><span class="gain">+' + r.gain + '</span><div class="small">' + esc(r.fix) + '</div><div class="small muted">Now: ' + esc(r.detail) + '</div></li>').join("") + '</ul>' : '<p class="muted small">Nothing here.</p>';
+  h += '<div class="card plan"><h2>Implementation plan</h2><p class="muted small">Ordered by points gained for the effort. The number is the points each fix adds to the score.</p><div class="grid g3">' +
+    '<div><h3>Now · quick wins</h3>' + pl(P.now) + '</div><div><h3>This month</h3>' + pl(P.month) + '</div><div><h3>Next 3 months</h3>' + pl(P.quarter) + '</div></div></div>';
+
+  const g = L.google, rk = L.rank || {};
+  h += '<div class="grid g2"><div class="card"><h2>Google profile</h2>' + (g ? '<table>' +
+    [["Name", g.name], ["Category", g.category], ["Address", g.address], ["Phone", g.phone], ["Website", g.website], ["Rating", (g.rating ?? "–") + "★ from " + g.reviews + " reviews"], ["Photos", g.photos + (g.photos >= 10 ? "+" : "")]]
+      .map(([k, v]) => '<tr><th>' + k + '</th><td>' + esc(v || "–") + '</td></tr>').join("") + '</table>' : '<p class="muted">' + esc(L.google_error || "Not found") + '</p>') +
+    '</div><div class="card"><h2>Map position</h2>' + (rk.out_of != null ? '<p>“' + esc(rk.query) + '”: <strong>' + (rk.rank ? "#" + rk.rank : "not in top " + rk.out_of) + '</strong></p>' +
+    (rk.competitors?.length ? '<h3>Ahead or around</h3><table><thead><tr><th>Competitor</th><th>Rating</th><th>Site</th></tr></thead>' + rk.competitors.map((x) => '<tr><td>' + esc(x.name) + '</td><td>' + (x.rating ?? "–") + '★ (' + x.reviews + ')</td><td class="small">' + (x.website ? '<a href="' + esc(x.website) + '" target="_blank" rel="noopener">site</a>' : "none") + '</td></tr>').join("") + '</table>' : "")
+    : '<p class="muted">' + esc(rk.error || "Not checked") + '</p>') + '</div></div>';
+
+  h += '<div class="card"><h2>All checks</h2><div class="tablewrap"><table><thead><tr><th></th><th>Check</th><th>Finding</th><th>Points</th></tr></thead><tbody>' +
+    Object.keys(S).map((k) => '<tr><th colspan="4" style="padding-top:16px">' + S[k] + '</th></tr>' + L.results.filter((r) => r.section === k).map((r) =>
+      '<tr><td>' + status(r.fraction) + '</td><td>' + esc(r.label) + '</td><td class="small">' + esc(r.detail) + '</td><td>' + (r.earned ?? "–") + '/' + r.points + '</td></tr>').join("")).join("") +
+    '</tbody></table></div></div>';
+
+  const ps = L.pagespeed?.scores;
+  h += '<div class="card"><h2>Pages crawled (' + L.pages.length + ')</h2>' + (ps ? '<p class="small">PageSpeed mobile: performance ' + ps.performance + ', SEO ' + ps.seo + ', accessibility ' + ps.accessibility + ', best practices ' + ps["best-practices"] + '</p>' : "") +
+    (L.crawl_errors?.length ? '<p class="small down">' + esc(L.crawl_errors.join("; ")) + '</p>' : "") +
+    '<div class="tablewrap"><table><thead><tr><th>Page</th><th>Title</th><th>Words</th><th>H1</th></tr></thead><tbody>' +
+    L.pages.map((p) => '<tr><td class="small"><a href="' + esc(p.url) + '" target="_blank" rel="noopener">' + esc(p.url.replace(/^https?:\/\/[^/]+/, "") || "/") + '</a>' + (p.status !== 200 ? ' <span class="down">' + p.status + '</span>' : "") + '</td><td class="small">' + esc(p.title || "–") + '</td><td>' + (p.words ?? "") + '</td><td>' + (p.h1 ? p.h1.length : "") + '</td></tr>').join("") +
+    '</tbody></table></div></div>';
+  $("#main").innerHTML = h;
+}
+async function del(id) {
+  if (!confirm("Delete this client and all its audit history?")) return;
+  await api("/api/clients/" + id, {method: "DELETE"}); location.hash = "";
+}
+
+function route() {
+  const m = location.hash.match(/^#\/c\/(\d+)(\/run)?/);
+  (m ? show(+m[1], !!m[2]) : list()).catch((e) => { $("#main").innerHTML = '<div class="card">' + esc(e.message) + '</div>'; });
+}
+window.addEventListener("hashchange", route); route();
+</script></body></html>

@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex"><title>Le Baliseur · Audit</title>
+<style>
+:root{--ink:#1d2a24;--green:#24493A;--amber:#F2B23A;--bg:#F6F3EC;--card:#fff;--line:#e3ddd0}
+@media (prefers-color-scheme:dark){:root{--ink:#ece8df;--bg:#141a17;--card:#1d2521;--line:#2e3a34;--green:#7fb69a}}
+*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,Segoe UI,sans-serif;padding:16px}
+form{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:28px;width:100%;max-width:360px}
+h1{margin:0 0 4px;font-size:22px}p{margin:0 0 18px;opacity:.75}
+.post{display:inline-block;width:10px;height:22px;background:var(--amber);border-radius:2px;margin-right:8px;vertical-align:-3px}
+input,button{width:100%;font:inherit;padding:12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
+button{margin-top:12px;background:var(--green);color:#fff;border:0;font-weight:600;cursor:pointer}
+.err{color:#C2410C;margin:10px 0 0}
+</style></head><body>
+<form method="post" action="/login">
+<h1><span class="post"></span>Le Baliseur Audit</h1><p>Private tool. Enter the password.</p>
+<input type="password" name="password" placeholder="Password" autofocus required>
+<button>Sign in</button><!--ERR-->
+</form></body></html>
