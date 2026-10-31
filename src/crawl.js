@@ -42,7 +42,7 @@ export async function parsePage(resp, city, street = "") {
     canonical: null, noindex: false, lang: null, viewport: false, words: 0, city_mentions: 0,
     phones: [], tel_link: false, schema_types: [], schema: [], images: 0, images_no_alt: 0,
     internal_links: [], external_links: 0, booking: [], has_faq_text: false, mixed_content: false,
-    generator: "",
+    generator: "", has_form: false, mailto: false,
   };
   let text = "", title = "", inTitle = false, h1buf = null, ld = null, lds = [];
   const internal = new Set(), booking = new Set();
@@ -52,6 +52,7 @@ export async function parsePage(resp, city, street = "") {
     if (!href) return;
     href = href.trim();
     if (href.startsWith("tel:")) { p.tel_link = true; return; }
+    if (/^mailto:/i.test(href)) { p.mailto = true; return; }
     if (/^(mailto:|javascript:|#)/i.test(href)) return;
     let u;
     try { u = new URL(href, finalUrl); } catch { return; }
@@ -86,6 +87,7 @@ export async function parsePage(resp, city, street = "") {
       text(t) { if (h1buf !== null) h1buf += t.text; },
     })
     .on("h2", { element() { p.h2_count++; } })
+    .on("form", { element() { p.has_form = true; } })
     .on("a[href]", { element(e) { addLink(e.getAttribute("href")); } })
     .on("iframe[src]", {
       element(e) {
@@ -97,7 +99,8 @@ export async function parsePage(resp, city, street = "") {
     .on("img", {
       element(e) {
         p.images++;
-        if (!(e.getAttribute("alt") || "").trim()) p.images_no_alt++;
+        // alt="" is the correct way to mark a decorative image; only a missing alt is a problem.
+        if (e.getAttribute("alt") === null) p.images_no_alt++;
         const src = e.getAttribute("src") || "";
         if (finalUrl.startsWith("https:") && src.startsWith("http:")) p.mixed_content = true;
       },
@@ -115,7 +118,10 @@ export async function parsePage(resp, city, street = "") {
 
   await rw.transform(resp).arrayBuffer();
 
-  p.title = title.trim().replace(/\s+/g, " ");
+  const decode = (x) => x.replace(/&amp;/g, "&").replace(/&nbsp;|&#160;/g, " ").replace(/&quot;/g, '"')
+    .replace(/&#39;|&apos;|&rsquo;|&#8217;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
+  p.title = decode(title).trim().replace(/\s+/g, " ");
+  p.meta_description = decode(p.meta_description);
   text = text.replace(/&nbsp;|&#160;/g, " ").replace(/\s+/g, " ").trim();
   p.words = text ? text.split(" ").length : 0;
   const low = text.toLowerCase();

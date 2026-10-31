@@ -169,8 +169,9 @@ export function runChecks(ctx) {
     "Add a short privacy page (RGPD) covering forms and analytics.", "S");
   add("contact", "trust", "Click-to-call and contact page", 2,
     () => {
-      const t = ok.some((p) => p.tel_link), c = like(["contact"]).length > 0;
-      return [0.5 * t + 0.5 * c, `click-to-call ${t ? "yes" : "no"}, contact page ${c ? "yes" : "no"}`];
+      const t = ok.some((p) => p.tel_link);
+      const c = like(["contact"]).length > 0 || ok.some((p) => p.has_form || p.mailto); // a contact form or email link counts
+      return [0.5 * t + 0.5 * c, `click-to-call ${t ? "yes" : "no"}, contact form or page ${c ? "yes" : "no"}`];
     },
     "Make the phone number tappable and add a clear contact page.", "S");
   add("booking", "trust", "Online booking link", 3,
