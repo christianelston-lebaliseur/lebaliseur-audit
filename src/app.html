@@ -81,9 +81,13 @@ async function api(path, opts = {}) {
 // ---------- Client list ----------
 async function list() {
   $("#main").innerHTML = '<p class="muted"><span class="spin"></span>Loading…</p>';
-  const cs = await api("/api/clients");
+  const [cs, leads] = await Promise.all([api("/api/clients"), api("/api/leads")]);
+  const leadsHtml = '<div class="card"><h2>Leads from the public check (' + leads.length + ')</h2>' + (leads.length ?
+    '<div class="tablewrap"><table><thead><tr><th>Score</th><th>Business</th><th>Contact</th><th>Date</th><th></th></tr></thead><tbody>' +
+    leads.map((l) => '<tr' + (l.client_id ? ' class="clientrow" onclick="location.hash=\'#/c/' + l.client_id + '\'"' : '') + '><td><span class="badge" style="background:' + col(l.total) + '">' + (l.total ?? "–") + '</span></td><td><strong>' + esc(l.business) + '</strong><div class="muted small">' + esc([l.category, l.city].filter(Boolean).join(" · ")) + (l.status !== "done" ? ' · ' + esc(l.status) : "") + (l.client_id && !l.prospect ? ' · client' : "") + '</div></td><td>' + esc(l.first_name || "") + ' <a href="mailto:' + esc(l.email) + '" onclick="event.stopPropagation()">' + esc(l.email) + '</a>' + (l.phone ? '<div class="small"><a href="tel:' + esc(l.phone) + '" onclick="event.stopPropagation()">' + esc(l.phone) + '</a></div>' : "") + '</td><td class="small">' + fmtDate(l.date + "Z") + '</td><td class="noprint"><button onclick="event.stopPropagation();delLead(' + l.id + ')" title="Delete (RGPD request)">✕</button></td></tr>').join("") +
+    '</tbody></table></div>' : '<p class="muted small">No one has used the public check yet. Its address is <a href="/diagnostic" target="_blank">/diagnostic</a>.</p>') + '</div>';
   if (!cs.length) {
-    $("#main").innerHTML = '<div class="card empty"><h2>No clients yet</h2><p class="muted">Add a business name and the tool does the rest: Google profile, map position, site crawl, speed test, score and plan.</p><button class="primary" onclick="openAdd()">+ Add the first client</button></div>';
+    $("#main").innerHTML = leadsHtml + '<div class="card empty"><h2>No clients yet</h2><p class="muted">Add a business name and the tool does the rest: Google profile, map position, site crawl, speed test, score and plan.</p><button class="primary" onclick="openAdd()">+ Add the first client</button></div>';
     return;
   }
   $("#main").innerHTML = '<div class="card"><h2>Clients</h2><div class="tablewrap"><table><thead><tr><th>Score</th><th>Business</th><th>Search tracked</th><th>Last audit</th><th></th></tr></thead><tbody>' +
@@ -93,7 +97,7 @@ async function list() {
         (d ? '<span class="delta ' + (d > 0 ? "up" : "down") + '">' + (d > 0 ? "+" : "") + d + '</span>' : "") +
         '</td><td><strong>' + esc(c.name) + '</strong><div class="muted small">' + esc(c.site || "website not set") + '</div></td><td>' +
         esc(c.query || [c.category, c.city].filter(Boolean).join(" ")) + '</td><td>' + fmtDate(c.last_date) + '</td><td class="noprint"><button onclick="event.stopPropagation();runAudit(' + c.id + ', this)">Audit now</button></td></tr>';
-    }).join("") + '</tbody></table></div><p class="muted small">Every client is re-audited automatically about once a month.</p></div>';
+    }).join("") + '</tbody></table></div><p class="muted small">Every client is re-audited automatically about once a month.</p></div>' + leadsHtml;
 }
 
 // ---------- Add client ----------
@@ -151,8 +155,8 @@ async function show(id, autorun) {
   const d = await api("/api/clients/" + id);
   const c = d.client, L = d.latest, S = d.sectionNames;
   let h = '<div class="row noprint" style="margin-bottom:12px;flex-wrap:wrap"><a href="#" class="btn">← All clients</a><span style="display:flex;gap:8px;flex-wrap:wrap">' +
-    '<button onclick="window.print()">Print / PDF</button><button onclick="del(' + id + ')">Delete</button><button class="primary" id="runbtn" onclick="runAudit(' + id + ', this)">Run audit now</button></span></div>' +
-    '<div class="card"><h2 style="font-size:22px;margin:0">' + esc(c.name) + '</h2><div class="muted">' + esc([c.category, c.city].filter(Boolean).join(" · ")) +
+    '(c.prospect ? '<button onclick="convert(' + id + ')">Make client</button>' : "") + '<button onclick="window.print()">Print / PDF</button><button onclick="del(' + id + ')">Delete</button><button class="primary" id="runbtn" onclick="runAudit(' + id + ', this)">Run audit now</button></span></div>' +
+    '<div class="card"><h2 style="font-size:22px;margin:0">' + esc(c.name) + (c.prospect ? ' <span class="gain">PROSPECT</span>' : "") + '</h2><div class="muted">' + esc([c.category, c.city].filter(Boolean).join(" · ")) +
     (L?.site ? ' · <a href="' + esc(L.site) + '" target="_blank" rel="noopener">' + esc(L.site.replace(/^https?:\/\//, "")) + '</a>' : "") +
     (L?.google?.maps_url ? ' · <a href="' + esc(L.google.maps_url) + '" target="_blank" rel="noopener">Google Maps</a>' : "") + '</div></div>';
   if (!L) {
@@ -202,6 +206,11 @@ async function show(id, autorun) {
     '</tbody></table></div></div>';
   $("#main").innerHTML = h;
 }
+async function delLead(id) {
+  if (!confirm("Delete this lead's contact details? (The audit itself stays under the prospect.)")) return;
+  await api("/api/leads/" + id, {method: "DELETE"}); list();
+}
+async function convert(id) { await api("/api/clients/" + id + "/convert", {method: "POST"}); show(id); }
 async function del(id) {
   if (!confirm("Delete this client and all its audit history?")) return;
   await api("/api/clients/" + id, {method: "DELETE"}); location.hash = "";

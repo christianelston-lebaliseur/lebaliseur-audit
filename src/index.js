@@ -6,6 +6,8 @@ import { pagespeed, findBusiness, placeById, mapRank } from "./sources.js";
 import { runChecks, score, plan, compare, streetOf, SECTIONS } from "./checks.js";
 import APP_HTML from "./app.html";
 import LOGIN_HTML from "./login.html";
+import CHECK_HTML from "./check.html";
+import { publicCheck } from "./public.js";
 
 const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS clients (
@@ -15,10 +17,20 @@ const SCHEMA = [
     id INTEGER PRIMARY KEY AUTOINCREMENT, client_id INTEGER NOT NULL, date TEXT NOT NULL,
     total INTEGER, coverage INTEGER, sections TEXT, data TEXT)`,
   `CREATE INDEX IF NOT EXISTS runs_client ON runs(client_id, date)`,
+  `CREATE TABLE IF NOT EXISTS leads (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT NOT NULL, first_name TEXT, email TEXT, phone TEXT,
+    business TEXT, city TEXT, category TEXT, site TEXT, consent INTEGER, lang TEXT, ip_hash TEXT,
+    status TEXT, client_id INTEGER, run_id INTEGER, total INTEGER)`,
+  `CREATE INDEX IF NOT EXISTS leads_date ON leads(date)`,
 ];
 let ready = false;
 async function db(env) {
-  if (!ready) { await env.DB.batch(SCHEMA.map((s) => env.DB.prepare(s))); ready = true; }
+  if (!ready) {
+    await env.DB.batch(SCHEMA.map((s) => env.DB.prepare(s)));
+    // Added after first release: prospects (from the public check) are kept apart from clients.
+    try { await env.DB.prepare("ALTER TABLE clients ADD COLUMN prospect INTEGER DEFAULT 0").run(); } catch { /* exists */ }
+    ready = true;
+  }
   return env.DB;
 }
 
@@ -102,8 +114,21 @@ async function api(req, env, url) {
       SELECT c.*, r.total, r.date AS last_date,
         (SELECT total FROM runs r2 WHERE r2.client_id=c.id AND r2.date<r.date ORDER BY date DESC LIMIT 1) AS prev_total
       FROM clients c LEFT JOIN runs r ON r.id=(SELECT id FROM runs WHERE client_id=c.id ORDER BY date DESC LIMIT 1)
-      ORDER BY c.name COLLATE NOCASE`).all();
+      WHERE COALESCE(c.prospect,0)=0 ORDER BY c.name COLLATE NOCASE`).all();
     return json(results);
+  }
+  if (path === "/api/leads" && m === "GET") {
+    const { results } = await D.prepare(`SELECT l.*, COALESCE(c.prospect,0) AS prospect FROM leads l
+      LEFT JOIN clients c ON c.id=l.client_id ORDER BY l.date DESC LIMIT 300`).all();
+    return json(results);
+  }
+  if ((mm = path.match(/^\/api\/leads\/(\d+)$/)) && m === "DELETE") {
+    await D.prepare("DELETE FROM leads WHERE id=?").bind(+mm[1]).run();
+    return json({ ok: true });
+  }
+  if ((mm = path.match(/^\/api\/clients\/(\d+)\/convert$/)) && m === "POST") {
+    await D.prepare("UPDATE clients SET prospect=0 WHERE id=?").bind(+mm[1]).run();
+    return json({ ok: true });
   }
   if (path === "/api/lookup" && m === "POST") {
     const b = await req.json();
@@ -153,6 +178,19 @@ export default {
   async fetch(req, env) {
     const url = new URL(req.url);
     if (url.pathname === "/robots.txt") return new Response("User-agent: *\nDisallow: /\n");
+    // Public visibility check (no login), embeddable on lebaliseur.fr.
+    if (url.pathname === "/diagnostic" || url.pathname === "/check") {
+      const page = CHECK_HTML
+        .replace("{{CONTACT_URL}}", env.CONTACT_URL || "https://lebaliseur.fr/")
+        .replace("{{TS_SCRIPT}}", env.TURNSTILE_SITEKEY ? '<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>' : "")
+        .replace("{{TS_WIDGET}}", env.TURNSTILE_SITEKEY ? `<div class="cf-turnstile" data-sitekey="${env.TURNSTILE_SITEKEY}" style="margin-top:12px"></div>` : "");
+      return html(page, 200, { "content-security-policy":
+        "frame-ancestors 'self' https://lebaliseur.fr https://www.lebaliseur.fr https://lebaliseur.com https://www.lebaliseur.com https://*.workers.dev" });
+    }
+    if (url.pathname === "/public/check" && req.method === "POST") {
+      try { return await publicCheck(req, env, { db, audit, saveRun, findBusiness }); }
+      catch (e) { return json({ error: "Une erreur est survenue, réessayez plus tard." }, 500); }
+    }
     if (url.pathname === "/login" && req.method === "POST") {
       const f = await req.formData();
       if (env.APP_PASSWORD && f.get("password") === env.APP_PASSWORD) {
@@ -182,7 +220,7 @@ export default {
     const D = await db(env);
     const due = await D.prepare(`
       SELECT c.id, MAX(r.date) AS last FROM clients c LEFT JOIN runs r ON r.client_id=c.id
-      GROUP BY c.id HAVING last IS NULL OR last < datetime('now', '-28 days')
+      WHERE COALESCE(c.prospect,0)=0 GROUP BY c.id HAVING last IS NULL OR last < datetime('now', '-28 days')
       ORDER BY last LIMIT 1`).first();
     if (due) await runClient(env, due.id);
   },

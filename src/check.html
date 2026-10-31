@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Diagnostic de visibilité · Le Baliseur</title>
+<meta name="robots" content="noindex">
+<style>
+:root{--ink:#1d2a24;--muted:#5d6a63;--green:#24493A;--amber:#F2B23A;--red:#C2410C;--bg:#F6F3EC;--card:#fff;--line:#e3ddd0;--soft:#efeadf}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 system-ui,-apple-system,Segoe UI,sans-serif}
+body.embed{background:transparent}
+.wrap{max-width:640px;margin:0 auto;padding:20px 16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px}
+h1{font-size:24px;margin:0 0 6px;line-height:1.25}h2{font-size:18px;margin:0 0 10px}
+.post{display:inline-block;width:9px;height:22px;background:var(--amber);border-radius:2px;margin-right:9px;vertical-align:-3px}
+.lead{color:var(--muted);margin:0 0 18px}
+label{display:block;font-size:14px;font-weight:600;margin:12px 0 5px}
+.opt{font-weight:400;color:var(--muted)}
+input[type=text],input[type=email],input[type=tel],input[type=url]{width:100%;font:inherit;padding:11px 12px;border-radius:10px;border:1px solid var(--line);background:#fff;color:var(--ink)}
+input:focus{outline:2px solid var(--amber);outline-offset:1px}
+.two{display:grid;gap:0 12px}@media(min-width:520px){.two{grid-template-columns:1fr 1fr}}
+.consent{display:flex;gap:10px;align-items:flex-start;font-size:13px;color:var(--muted);margin:16px 0 4px}
+.consent input{margin-top:3px;width:18px;height:18px;flex:none}
+button{font:inherit;font-weight:700;width:100%;padding:14px;border:0;border-radius:11px;background:var(--green);color:#fff;cursor:pointer;margin-top:14px}
+button:disabled{opacity:.6;cursor:wait}
+.err{color:var(--red);font-size:14px;margin:10px 0 0}
+.steps{list-style:none;padding:0;margin:14px 0 0}.steps li{padding:6px 0;color:var(--muted)}
+.steps li.on{color:var(--ink);font-weight:600}.steps li.done{color:var(--green)}
+.steps li::before{content:"○";display:inline-block;width:22px}.steps li.on::before{content:"◐"}.steps li.done::before{content:"●"}
+.gauge{display:flex;align-items:center;gap:18px;flex-wrap:wrap}.gauge svg{width:140px;height:140px;flex:none}
+.verdict h2{margin-bottom:4px}
+.bar{height:9px;background:var(--soft);border-radius:6px;overflow:hidden;margin:3px 0 11px}.bar i{display:block;height:100%;border-radius:6px}
+.row{display:flex;justify-content:space-between;gap:8px;font-size:15px}
+ol.prio{padding-left:20px;margin:0}ol.prio li{margin-bottom:10px}
+.small{font-size:13px;color:var(--muted)}
+.cta{display:block;text-align:center;text-decoration:none;font-weight:700;padding:14px;border-radius:11px;background:var(--amber);color:#1d2a24;margin-top:16px}
+.found{background:var(--soft);border-radius:10px;padding:10px 12px;font-size:14px;margin:12px 0}
+section+section{margin-top:16px}
+.hidden{display:none}
+</style>
+{{TS_SCRIPT}}
+</head><body>
+<div class="wrap">
+<section class="card" id="form-card">
+<h1><span class="post"></span><span data-fr="Votre score de visibilité, en vrai" data-en="Your real visibility score"></span></h1>
+<p class="lead" data-fr="Nous analysons votre fiche Google, votre position sur la carte, votre site, sa vitesse et sa lisibilité par les IA. Résultat en une minute environ." data-en="We check your Google profile, your map position, your website, its speed and how well AI assistants can read it. Results in about a minute."></p>
+<form id="f" novalidate>
+<label for="business" data-fr="Nom de votre entreprise" data-en="Business name"></label>
+<input type="text" id="business" required autocomplete="organization">
+<div class="two">
+<div><label for="city" data-fr="Ville" data-en="Town"></label><input type="text" id="city" value="Annecy"></div>
+<div><label for="category"><span data-fr="Activité" data-en="Activity"></span> <span class="opt" data-fr="(ex. restaurant)" data-en="(e.g. restaurant)"></span></label><input type="text" id="category"></div>
+</div>
+<label for="site"><span data-fr="Site web" data-en="Website"></span> <span class="opt" data-fr="(facultatif)" data-en="(optional)"></span></label>
+<input type="url" id="site" placeholder="https://" inputmode="url">
+<div class="two">
+<div><label for="first_name" data-fr="Prénom" data-en="First name"></label><input type="text" id="first_name" autocomplete="given-name"></div>
+<div><label for="phone"><span data-fr="Téléphone" data-en="Phone"></span> <span class="opt" data-fr="(facultatif)" data-en="(optional)"></span></label><input type="tel" id="phone" autocomplete="tel"></div>
+</div>
+<label for="email" data-fr="E-mail" data-en="Email"></label>
+<input type="email" id="email" required autocomplete="email">
+<label class="consent"><input type="checkbox" id="consent"><span data-fr="J'accepte que Le Baliseur conserve ces informations et me recontacte au sujet de ce diagnostic. Pas de newsletter, pas de revente. Vous pouvez demander leur suppression à tout moment." data-en="I agree that Le Baliseur keeps these details and contacts me about this check. No newsletter, never sold. You can ask for deletion at any time."></span></label>
+{{TS_WIDGET}}
+<button id="go" data-fr="Voir mon score" data-en="See my score"></button>
+<p class="err" id="err" role="alert"></p>
+</form>
+<ul class="steps hidden" id="steps">
+<li data-fr="Recherche de votre fiche Google" data-en="Finding your Google profile"></li>
+<li data-fr="Position sur Google Maps face aux concurrents" data-en="Map position against competitors"></li>
+<li data-fr="Exploration de votre site" data-en="Crawling your website"></li>
+<li data-fr="Test de vitesse Google sur mobile" data-en="Google mobile speed test"></li>
+<li data-fr="Calcul du score" data-en="Calculating your score"></li>
+</ul>
+</section>
+
+<div id="result" class="hidden"></div>
+</div>
+<script>
+const en = new URLSearchParams(location.search).get("lang") === "en";
+const CONTACT = "{{CONTACT_URL}}";
+if (new URLSearchParams(location.search).has("embed")) document.body.classList.add("embed");
+document.documentElement.lang = en ? "en" : "fr";
+document.querySelectorAll("[data-fr]").forEach((e) => e.textContent = e.dataset[en ? "en" : "fr"]);
+if (en) document.title = "Visibility check · Le Baliseur";
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const col = (n) => n == null ? "#8a948f" : n >= 80 ? "#2e7d57" : n >= 50 ? "#c98a12" : "#C2410C";
+function resize() { try { parent.postMessage({baliseurAuditHeight: document.documentElement.scrollHeight}, "*"); } catch (e) {} }
+new ResizeObserver(resize).observe(document.body);
+
+let timer;
+function progress(on) {
+  const items = [...document.querySelectorAll("#steps li")];
+  $("#steps").classList.toggle("hidden", !on);
+  clearInterval(timer);
+  if (!on) return;
+  let i = 0, at = [0, 4, 9, 18, 45];
+  const t0 = Date.now();
+  timer = setInterval(() => {
+    const s = (Date.now() - t0) / 1000;
+    while (i < at.length - 1 && s >= at[i + 1]) i++;
+    items.forEach((li, k) => li.className = k < i ? "done" : k === i ? "on" : "");
+  }, 500);
+}
+
+$("#f").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  $("#err").textContent = "";
+  const body = {lang: en ? "en" : "fr"};
+  ["business", "city", "category", "site", "first_name", "phone", "email"].forEach((k) => body[k] = $("#" + k).value);
+  body.consent = $("#consent").checked;
+  const ts = document.querySelector("[name=cf-turnstile-response]"); if (ts) body.ts = ts.value;
+  if (!body.business.trim()) { $("#err").textContent = en ? "Enter your business name." : "Indiquez le nom de votre entreprise."; return $("#business").focus(); }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(body.email)) { $("#err").textContent = en ? "Enter a valid email address." : "Indiquez une adresse e-mail valide."; return $("#email").focus(); }
+  if (!body.consent) { $("#err").textContent = en ? "Please tick the consent box." : "Merci de cocher la case d'accord."; return; }
+  $("#go").disabled = true; $("#f").classList.add("hidden"); progress(true);
+  try {
+    const r = await fetch("/public/check", {method: "POST", headers: {"content-type": "application/json"}, body: JSON.stringify(body)});
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || "Error");
+    show(j);
+  } catch (err) {
+    $("#err").textContent = err.message || (en ? "Something went wrong, please try again." : "Une erreur est survenue, réessayez.");
+    $("#f").classList.remove("hidden");
+    if (window.turnstile) try { turnstile.reset(); } catch (e) {}
+  }
+  progress(false); $("#go").disabled = false; resize();
+});
+
+function show(j) {
+  const n = j.total, r = 56, c = 2 * Math.PI * r;
+  const lvl = n >= 80 ? (en ? ["Well marked", "You're in good shape. The next gains come from beating your top competitors point by point."] : ["Bien balisé", "Vous êtes en bonne forme. Les prochains gains viendront d'une comparaison précise avec vos meilleurs concurrents."])
+    : n >= 50 ? (en ? ["On the way", "The basics are there, but competitors are probably ahead of you. A few targeted fixes can change that."] : ["Sur le chemin", "Les bases sont là, mais vos concurrents vous devancent sans doute. Quelques corrections ciblées peuvent changer la donne."])
+    : (en ? ["Off the trail", "Customers searching for what you do are unlikely to find you. The good news: the basics are quick to fix."] : ["Hors sentier", "Les clients qui cherchent ce que vous faites ont peu de chances de vous trouver. Bonne nouvelle : les bases se corrigent vite."]);
+  $("#form-card").classList.add("hidden");
+  $("#result").innerHTML =
+    '<section class="card"><div class="gauge"><svg viewBox="0 0 140 140"><circle cx="70" cy="70" r="' + r + '" fill="none" stroke="#efeadf" stroke-width="13"/><circle cx="70" cy="70" r="' + r + '" fill="none" stroke="' + col(n) + '" stroke-width="13" stroke-linecap="round" stroke-dasharray="' + (c * n / 100) + ' ' + c + '" transform="rotate(-90 70 70)"/><text x="70" y="78" text-anchor="middle" font-size="36" font-weight="700" fill="#1d2a24">' + n + '</text><text x="70" y="98" text-anchor="middle" font-size="11" fill="#5d6a63">/ 100</text></svg>' +
+    '<div class="verdict"><h2>' + esc(lvl[0]) + '</h2><p style="margin:0">' + esc(lvl[1]) + '</p></div></div>' +
+    '<div class="found"><strong>' + esc(j.business) + '</strong>' + (j.address ? '<br>' + esc(j.address) : "") + (j.rating != null ? '<br>' + j.rating + '★ · ' + j.reviews + (en ? " Google reviews" : " avis Google") : "") + (j.site ? '<br>' + esc(j.site.replace(/^https?:\/\//, "")) : "") + '</div>' +
+    j.sections.map((s) => '<div class="row"><span>' + esc(s.name) + '</span><strong>' + (s.pct == null ? (en ? "n/a" : "n.c.") : s.pct + " %") + '</strong></div><div class="bar"><i style="width:' + (s.pct || 0) + '%;background:' + col(s.pct) + '"></i></div>').join("") +
+    '</section><section class="card"><h2>' + (en ? "Your three priorities" : "Vos trois priorités") + '</h2><ol class="prio">' +
+    j.top.map((p) => '<li><strong>' + esc(p.label) + '</strong><br><span class="small">' + esc(p.fix) + '</span></li>').join("") + '</ol>' +
+    '<p class="small" style="margin-top:12px">' + (en ? "The full report has around thirty checks, your exact map position against three competitors and a step-by-step plan. We'll go through it with you, free and with no commitment." : "Le rapport complet comprend une trentaine de points, votre position exacte face à trois concurrents et un plan étape par étape. Nous le passons en revue avec vous, gratuitement et sans engagement.") + '</p>' +
+    '<a class="cta" href="' + esc(CONTACT) + '" target="_top">' + (en ? "Get my free full audit" : "Recevoir mon diagnostic complet offert") + '</a></section>';
+  $("#result").classList.remove("hidden"); resize();
+  try { parent.postMessage({baliseurAuditScore: n}, "*"); } catch (e) {}
+}
+resize();
+</script>
+</body></html>
