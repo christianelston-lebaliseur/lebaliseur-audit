@@ -62,7 +62,7 @@ function aiPlan(env, client, place, opts = {}) {
   if (opts.public && env.AI_PUBLIC === "off") return { prompts: [], skip: "AI check off for the public check" };
   return {
     prompts: aiPrompts(client, place, opts.public ? 1 : 3),
-    only: opts.public ? (env.AI_PUBLIC_ENGINES || "perplexity").split(",").map((x) => x.trim()) : null,
+    only: opts.public ? (env.AI_PUBLIC_ENGINES || "gemini,perplexity").split(",").map((x) => x.trim()) : null,
   };
 }
 function aiContext(client, place, site, rank) {
@@ -217,7 +217,7 @@ export default {
     // Public visibility check (no login), embeddable on lebaliseur.fr.
     if (url.pathname === "/diagnostic" || url.pathname === "/check") {
       const ENGINE_KEYS = { chatgpt: "OPENAI_API_KEY", perplexity: "PERPLEXITY_API_KEY", gemini: "GEMINI_API_KEY" };
-      const aiOn = env.AI_PUBLIC !== "off" && (env.AI_PUBLIC_ENGINES || "perplexity").split(",")
+      const aiOn = env.AI_PUBLIC !== "off" && (env.AI_PUBLIC_ENGINES || "gemini,perplexity").split(",")
         .some((e) => env[ENGINE_KEYS[e.trim()]]);
       const page = (aiOn ? CHECK_HTML : CHECK_HTML.replace(/<li data-fr="Ce que les IA[^\n]*<\/li>\n?/, ""))
         .replace("{{CONTACT_URL}}", env.CONTACT_URL || "https://lebaliseur.fr/#diagnostic")

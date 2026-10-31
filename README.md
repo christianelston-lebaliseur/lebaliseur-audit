@@ -37,7 +37,7 @@ Add any of these Worker secrets; each one switches its assistant on:
 | `OPENAI_API_KEY` | ChatGPT (Responses API with web search) | `OPENAI_MODEL`, default `gpt-5.5` |
 | `GEMINI_API_KEY` | Gemini (grounded with Google Search) | `GEMINI_MODEL`, default `gemini-3.5-flash` |
 
-The public check asks one question plus the by-name question, of the engines in `AI_PUBLIC_ENGINES` only (default `perplexity`, comma-separated). Set `AI_PUBLIC=off` to leave it out of the public check. With no AI key set, this area is simply skipped.
+The public check asks one question plus the by-name question, of the engines in `AI_PUBLIC_ENGINES` only (default `gemini,perplexity`, comma-separated; ChatGPT is left out because it costs more). Gemini on a project without billing uses Google's free tier, so the AI check can run at no cost. Set `AI_PUBLIC=off` to leave it out of the public check. With no AI key set, this area is simply skipped.
 
 ## Schedule
 
