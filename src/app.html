@@ -76,7 +76,14 @@ let found = null;
 async function api(path, opts = {}) {
   const r = await fetch(path, {headers: {"content-type": "application/json"}, ...opts});
   if (r.status === 401) { location.reload(); throw new Error("login"); }
-  const j = await r.json();
+  const text = await r.text();
+  let j;
+  try { j = JSON.parse(text); }
+  catch {
+    // Not JSON: a Cloudflare error page. Show its code and title ("Error 1102 … exceeded resource limits").
+    const t = (text.match(/<title>([^<]*)<\/title>/i) || [])[1] || "";
+    throw new Error("Cloudflare returned an error page (HTTP " + r.status + ")" + (t ? ": " + t.trim() : ""));
+  }
   if (!r.ok || j.error && !j.date && !j.place) throw new Error(j.error || "Error " + r.status);
   return j;
 }

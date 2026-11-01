@@ -14,7 +14,12 @@ export async function pagespeed(url, key) {
   for (const c of ["performance", "seo", "accessibility", "best-practices"]) q.append("category", c);
   if (key) q.set("key", key);
   try {
-    const r = await fetch(`${PSI}?${q}`, { signal: AbortSignal.timeout(110000) });
+    // Ask only for the fields used: the full Lighthouse report is several MB and costly to read.
+    const f = new URLSearchParams(q);
+    f.set("fields", "error,lighthouseResult/categories/*/score,lighthouseResult/audits/largest-contentful-paint/numericValue," +
+      "lighthouseResult/audits/cumulative-layout-shift/numericValue,lighthouseResult/audits/total-blocking-time/numericValue");
+    let r = await fetch(`${PSI}?${f}`, { signal: AbortSignal.timeout(110000) });
+    if (r.status === 400) r = await fetch(`${PSI}?${q}`, { signal: AbortSignal.timeout(110000) }); // fields rejected: full report
     const j = await r.json();
     if (!r.ok) return { error: j.error?.message?.slice(0, 200) || `HTTP ${r.status}` };
     const lh = j.lighthouseResult, a = lh.audits;
