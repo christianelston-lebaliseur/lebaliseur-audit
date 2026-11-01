@@ -132,7 +132,7 @@ export function runChecks(ctx) {
   add("reviews", "local", "Reviews (count and rating)", 5,
     () => gbp ? [0.6 * Math.min(1, gbp.reviews / 50) + 0.4 * Math.max(0, ((gbp.rating || 0) - 3.5) / 1.5),
       `${gbp.rating ?? "–"}★ from ${gbp.reviews} reviews`] : zeroIfMissing("no Google reviews (no profile)"),
-    "Ask every happy client for a review (QR code or short link) and reply to every review.", "M");
+    "Ask every client for a review (QR code or short link), never offer anything in return, and reply to every review.", "M");
   add("map_rank", "local", "Position on Google Maps for the main search", 5,
     () => rank.out_of !== undefined ? [rank.rank ? 1 - (rank.rank - 1) / 10 : 0,
       `“${rank.query}”: ${rank.rank ? "position " + rank.rank : "not in top " + rank.out_of}`]

@@ -29,7 +29,7 @@ const FR = {
   alt: ["Images décrites", "Décrire chaque image (texte alternatif)."],
   gbp: ["Fiche Google Business", "Revendiquer, compléter et valider votre fiche Google."],
   gbp_complete: ["Fiche Google complète", "Horaires, site, description et au moins 10 vraies photos."],
-  reviews: ["Avis Google", "Demander un avis à chaque client satisfait et répondre à tous les avis."],
+  reviews: ["Avis Google", "Demander un avis à chaque client, sans rien offrir en échange, et répondre à tous les avis."],
   map_rank: ["Position sur Google Maps", "Travailler catégorie, avis, contenu local et annuaires pour remonter sur la carte."],
   nap: ["Adresse et téléphone cohérents", "Afficher exactement la même adresse et le même numéro que sur Google, partout."],
   site_link: ["Fiche reliée au site", "Indiquer l'adresse du site dans la fiche Google."],
