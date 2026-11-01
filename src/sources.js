@@ -76,11 +76,18 @@ export function summarisePlace(p) {
 // counts only if its website is the business's site or the names share their distinctive word.
 const compact = (s) => plain(s).replace(/ /g, "");
 const hostOf = (u) => { try { return new URL(/^https?:/.test(u) ? u : "https://" + u).hostname.replace(/^www\./, ""); } catch { return ""; } };
+const siteMatch = (p, site) => !!site && !!p.website && !!hostOf(site) && hostOf(site) === hostOf(p.website);
 export function sameBusiness(p, name, city, site) {
-  if (site && p.website && hostOf(site) && hostOf(site) === hostOf(p.website)) return true;
+  if (siteMatch(p, site)) return true;
   const q = compact(name), r = compact(p.name);
   const qk = compact(nameKey(name, city, "")), rk = compact(nameKey(p.name, city, ""));
-  return (!!qk && r.includes(qk)) || (!!rk && q.includes(rk));
+  // Strong: the distinctive word of what was typed appears in Google's name ("lillaz" in "Caroline Lillaz – Psychologue").
+  if (qk && r.includes(qk)) return true;
+  // Weak: Google's distinctive word appears in what was typed. Only when it is nearly the whole name
+  // ("estaminet" in "lestaminet"), never a fragment ("colony" in "wearecolony"), and never when the
+  // person gave a website that differs from the profile's.
+  const different = !!site && !!p.website && !siteMatch(p, site);
+  return !!rk && rk.length >= 5 && q.includes(rk) && q.length - rk.length <= 3 && !different;
 }
 
 // Find a business by name; returns the best match plus alternatives.
@@ -91,7 +98,7 @@ export async function findBusiness(name, city, key, opts = {}) {
   if (res.error) return res;
   const all = res.places.map(summarisePlace);
   if (opts.strict) {
-    const hit = all.find((p) => sameBusiness(p, name, city, opts.site));
+    const hit = all.find((p) => siteMatch(p, opts.site)) || all.find((p) => sameBusiness(p, name, city, opts.site));
     if (!hit) return { error: "No Google profile found for this business", notFound: true, alternatives: all.slice(0, 3) };
     return { place: hit, alternatives: all.filter((p) => p !== hit) };
   }
