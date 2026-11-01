@@ -11,6 +11,8 @@ export const BOOKING_HOSTS = ["doctolib", "zenchef", "thefork", "lafourchette", 
 const AI_BOTS = ["GPTBot", "OAI-SearchBot", "ChatGPT-User", "PerplexityBot", "ClaudeBot",
   "Google-Extended", "Bingbot"];
 
+const KEY_PAGE = /(mentions|legal|confidential|privacy|rgpd|contact)/i;
+
 export const normHost = (h) => (h || "").toLowerCase().replace(/^www\./, "");
 
 // Turns whatever a person typed into a usable address, or "" if it isn't one:
@@ -202,6 +204,7 @@ export async function crawl(startUrl, city = "", maxPages = 25, street = "") {
   const smUrl = (robots.match(/sitemap:\s*(\S+)/i) || [])[1] || base + "/sitemap.xml";
   const sm = await getText(smUrl);
   s.sitemap = /<(urlset|sitemapindex)/i.test(sm);
+  s.sitemap_urls = [...sm.matchAll(/<loc>\s*([^<\s]+)\s*<\/loc>/gi)].map((m) => m[1].replace(/\/$/, "")).slice(0, 500);
   const llms = await getText(base + "/llms.txt");
   s.llms_txt = !!llms && !/<html/i.test(llms.slice(0, 500));
 
@@ -224,10 +227,15 @@ export async function crawl(startUrl, city = "", maxPages = 25, street = "") {
     out.pages.push(page);
     for (const link of page.internal_links) {
       const path = new URL(link).pathname;
-      if (!seen.has(link) && !SKIP_EXT.test(path)) { seen.add(link); queue.push({ url: link }); }
+      if (!seen.has(link) && !SKIP_EXT.test(path)) {
+        seen.add(link);
+        // Legal, privacy and contact pages first: they're checked for trust, and often sit at the bottom of the site.
+        if (KEY_PAGE.test(path)) queue.splice(1, 0, { url: link }); else queue.push({ url: link });
+      }
     }
   }
   s.pages_found = seen.size;
+  s.internal_urls = [...seen].slice(0, 500);
   for (const [name, sig] of [["Wix", "wix"], ["Jimdo", "jimdo"], ["WordPress", "wordpress"],
     ["Squarespace", "squarespace"], ["Webflow", "webflow"]]) {
     if (!s.generator && (s.server.toLowerCase().includes(sig))) s.generator = name;

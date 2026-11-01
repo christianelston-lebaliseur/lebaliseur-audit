@@ -41,7 +41,13 @@ export function runChecks(ctx) {
   const schema = [...new Set(ok.flatMap((p) => p.schema_types))];
   const sitePhones = new Set(ok.flatMap((p) => p.phones.map(last9)));
   const broken = pages.filter((p) => !p.status || p.status >= 400);
-  const like = (words) => pages.filter((p) => words.some((w) => plain(p.url + " " + (p.title || "")).includes(w)));
+  const links = site.internal_urls || [];
+  const like = (words) => [...pages.map((p) => p.url + " " + (p.title || "")), ...links]
+    .filter((t) => words.some((w) => plain(t).includes(w)));
+  // A page hidden from Google (noindex) is a problem only if it's the homepage or listed in the sitemap;
+  // otherwise it was hidden on purpose (demo pages, thank-you pages…).
+  const smSet = new Set((site.sitemap_urls || []).map((u) => u.replace(/\/$/, "")));
+  const badNoindex = ok.filter((p, i) => p.noindex && (i === 0 || smSet.has(p.url.replace(/\/$/, ""))));
   const imgs = sum(ok.filter((p) => !p.noindex), (p) => p.images), noAlt = sum(ok.filter((p) => !p.noindex), (p) => p.images_no_alt);
   const R = [];
 
@@ -62,8 +68,9 @@ export function runChecks(ctx) {
       `HTTPS ${site.https ? "yes" : "no"}, http→https redirect ${site.http_redirects_to_https ? "yes" : "no"}`],
     "Turn on an SSL certificate and force HTTPS with a permanent redirect.", "S");
   add("indexable", "tech", "Open to Google (no noindex, robots.txt allows)", 4,
-    () => [site.robots_blocks_all ? 0 : 1 - ratio(sum(ok, (p) => p.noindex), ok.length),
-      `${sum(ok, (p) => p.noindex)} of ${ok.length} pages hidden (noindex)` +
+    () => [site.robots_blocks_all ? 0 : 1 - ratio(badNoindex.length, ok.length),
+      `${badNoindex.length} of ${ok.length} important pages hidden (noindex)` +
+      (sum(ok, (p) => p.noindex) > badNoindex.length ? ` (${sum(ok, (p) => p.noindex) - badNoindex.length} hidden on purpose, not counted)` : "") +
       (site.robots_blocks_all ? "; robots.txt blocks everything" : "")],
     "Remove noindex tags and any “Disallow: /” in robots.txt.", "S");
   add("sitemap", "tech", "XML sitemap", 2,
