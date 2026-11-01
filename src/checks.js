@@ -31,6 +31,10 @@ export function runChecks(ctx) {
   const site = crawl.site || {};
   const pages = crawl.pages || [];
   const ok = pages.filter((p) => p.status === 200 && "title" in p);
+  // Pages judged on content quality: not hidden from Google on purpose (noindex) and not legal pages,
+  // which are short by nature. Falls back to all pages if that leaves nothing.
+  const LEGAL = /(mentions|legal|confidential|privacy|rgpd|cgv|cgu|terms|cookies)/i;
+  const cq = ok.filter((p) => !p.noindex && !LEGAL.test(p.url)).length ? ok.filter((p) => !p.noindex && !LEGAL.test(p.url)) : ok;
   const home = ok[0] || { title: "", h1: [] };
   const gbp = google.place;
   const city = plain(ctx.city);
@@ -38,7 +42,7 @@ export function runChecks(ctx) {
   const sitePhones = new Set(ok.flatMap((p) => p.phones.map(last9)));
   const broken = pages.filter((p) => !p.status || p.status >= 400);
   const like = (words) => pages.filter((p) => words.some((w) => plain(p.url + " " + (p.title || "")).includes(w)));
-  const imgs = sum(ok, (p) => p.images), noAlt = sum(ok, (p) => p.images_no_alt);
+  const imgs = sum(ok.filter((p) => !p.noindex), (p) => p.images), noAlt = sum(ok.filter((p) => !p.noindex), (p) => p.images_no_alt);
   const R = [];
 
   const add = (id, section, label, points, fn, fix, effort) => {
@@ -80,18 +84,18 @@ export function runChecks(ctx) {
 
   // ---------- On-page (25) ----------
   add("titles", "onpage", "Page titles 30–65 characters", 5,
-    () => [ratio(sum(ok, (p) => p.title.length >= 30 && p.title.length <= 65), ok.length),
-      `${sum(ok, (p) => p.title.length >= 30 && p.title.length <= 65)}/${ok.length} good · home: “${home.title}”`],
+    () => [ratio(sum(cq, (p) => p.title.length >= 30 && p.title.length <= 65), cq.length),
+      `${sum(cq, (p) => p.title.length >= 30 && p.title.length <= 65)}/${cq.length} good · home: “${home.title}”`],
     "Write a title per page: service + town + name, under 65 characters.", "S");
   add("unique_titles", "onpage", "Unique titles", 2,
-    () => [ratio(new Set(ok.map((p) => p.title)).size, ok.length), `${new Set(ok.map((p) => p.title)).size} unique of ${ok.length}`],
+    () => [ratio(new Set(cq.map((p) => p.title)).size, cq.length), `${new Set(cq.map((p) => p.title)).size} unique of ${cq.length}`],
     "Give every page its own title.", "S");
   add("meta", "onpage", "Meta descriptions (70–160 characters)", 4,
-    () => [ratio(sum(ok, (p) => p.meta_description.length >= 70 && p.meta_description.length <= 160), ok.length),
-      `${sum(ok, (p) => p.meta_description.length >= 70 && p.meta_description.length <= 160)}/${ok.length} pages`],
+    () => [ratio(sum(cq, (p) => p.meta_description.length >= 70 && p.meta_description.length <= 160), cq.length),
+      `${sum(cq, (p) => p.meta_description.length >= 70 && p.meta_description.length <= 160)}/${cq.length} pages`],
     "Write a one- or two-sentence description per page that makes people want to click.", "S");
   add("h1", "onpage", "One H1 heading per page", 4,
-    () => [ratio(sum(ok, (p) => p.h1.length === 1), ok.length), `${sum(ok, (p) => p.h1.length === 1)}/${ok.length} pages`],
+    () => [ratio(sum(cq, (p) => p.h1.length === 1), cq.length), `${sum(cq, (p) => p.h1.length === 1)}/${cq.length} pages`],
     "Use exactly one main heading per page saying what it offers.", "S");
   add("city_title", "onpage", "Town in homepage title and H1", 4,
     () => {
@@ -100,8 +104,8 @@ export function runChecks(ctx) {
     },
     `Put “${ctx.category || "activity"} ${ctx.city}” in the homepage title and main heading.`, "S");
   add("depth", "onpage", "Enough content (300+ words per page)", 3,
-    () => [ratio(sum(ok, (p) => p.words >= 300), ok.length),
-      `average ${Math.round(sum(ok, (p) => p.words) / Math.max(1, ok.length))} words per page`],
+    () => [ratio(sum(cq, (p) => p.words >= 300), cq.length),
+      `average ${Math.round(sum(cq, (p) => p.words) / Math.max(1, cq.length))} words per page`],
     "Expand thin pages: what you do, for whom, how, where, prices, questions.", "M");
   add("alt", "onpage", "Images described (alt text)", 3,
     () => imgs ? [1 - noAlt / imgs, `${noAlt} of ${imgs} images missing alt text`] : [null, "no images"],
