@@ -39,6 +39,8 @@ section+section{margin-top:16px}
 .pick:hover,.pick:focus{border-color:var(--green);outline:none}
 .pick.best{border:2px solid var(--green)}
 .pick strong{display:block;font-size:15px}.pick span{display:block;font-size:13px;color:var(--muted)}
+.thumbs{display:flex;gap:10px;margin-top:10px}.thumbs button{margin:0;background:#fff;color:var(--ink);border:1px solid var(--line);font-weight:600}
+.thumbs button.on{border:2px solid var(--green);background:var(--soft)}
 .linkbtn{background:none;color:var(--green);text-decoration:underline;padding:6px 0;width:auto;font-weight:600;margin-top:8px}
 </style>
 {{TS_SCRIPT}}
@@ -198,8 +200,24 @@ function show(j) {
     j.top.map((p) => '<li><strong>' + esc(p.label) + '</strong><br><span class="small">' + esc(p.fix) + '</span></li>').join("") + '</ol>' +
     '<p class="small" style="margin-top:12px">' + (en ? "The full report has around thirty checks, your exact map position against three competitors and a step-by-step plan. We'll go through it with you, free and with no commitment." : "Le rapport complet comprend une trentaine de points, votre position exacte face à trois concurrents et un plan étape par étape. Nous le passons en revue avec vous, gratuitement et sans engagement.") + '</p>' +
     '<a class="cta" href="' + esc(CONTACT) + '" target="_top">' + (en ? "Get my free full audit" : "Recevoir mon diagnostic complet offert") + '</a></section>';
+  if (j.fb) $("#result").insertAdjacentHTML("beforeend", feedbackCard());
+  if (j.fb) wireFeedback(j.fb);
   $("#result").classList.remove("hidden"); resize();
   try { parent.postMessage({baliseurAuditScore: n}, "*"); } catch (e) {}
+}
+// Feedback on the check: a simple 👍 / 👎, saved with the lead.
+function feedbackCard() {
+  return '<section class="card" id="fbcard"><h2>' + (en ? "Thanks for using the check!" : "Merci d'avoir utilisé le diagnostic !") + '</h2>' +
+    '<p class="small" style="margin:0">' + (en ? "Was it useful? Your feedback helps us improve it." : "Vous a-t-il été utile ? Votre avis nous aide à l'améliorer.") + '</p>' +
+    '<div class="thumbs"><button type="button" data-u="1">👍 ' + (en ? "Useful" : "Utile") + '</button><button type="button" data-u="0">👎 ' + (en ? "Not really" : "Pas vraiment") + '</button></div>' +
+    '<p class="small hidden" id="fbdone" style="margin:10px 0 0">' + (en ? "Thank you!" : "Merci !") + '</p></section>';
+}
+function wireFeedback(fb) {
+  document.querySelectorAll("#fbcard .thumbs button").forEach((b) => b.onclick = () => {
+    document.querySelectorAll("#fbcard .thumbs button").forEach((x) => x.classList.toggle("on", x === b));
+    fetch("/public/feedback", {method: "POST", headers: {"content-type": "application/json"}, body: JSON.stringify({fb, useful: b.dataset.u === "1"})}).catch(() => {});
+    $("#fbdone").classList.remove("hidden"); resize();
+  });
 }
 resize();
 </script>

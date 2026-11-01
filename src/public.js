@@ -85,6 +85,39 @@ export async function publicLookup(req, env, deps) {
     rating: p.rating, reviews: p.reviews, category: p.category, website: p.website })) });
 }
 
+// A token tying feedback to its lead, so nobody can post feedback for someone else's check.
+async function fbToken(env, leadId) {
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode((env.APP_PASSWORD || "") + ":fb"),
+    { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(String(leadId)));
+  return leadId + "." + [...new Uint8Array(sig)].slice(0, 12).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+// deps: { db }
+export async function publicFeedback(req, env, deps) {
+  const b = await req.json().catch(() => ({}));
+  const out = (data, status = 200) => new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json" } });
+  const leadId = parseInt(String(b.fb || "").split(".")[0], 10);
+  if (!leadId || b.fb !== (await fbToken(env, leadId))) return out({ ok: false }, 400);
+  const useful = b.useful === true ? 1 : b.useful === false ? 0 : null;
+  const comment = String(b.comment || "").replace(/\s+/g, " ").trim().slice(0, 1000);
+  const D = await deps.db(env);
+  await D.prepare("UPDATE leads SET fb_useful=COALESCE(?, fb_useful), fb_comment=COALESCE(NULLIF(?, ''), fb_comment) WHERE id=?")
+    .bind(useful, comment, leadId).run();
+  const lead = await D.prepare("SELECT business, email, first_name, total FROM leads WHERE id=?").bind(leadId).first();
+  if (lead && comment && env.BREVO_API_KEY && env.MAIL_FROM && env.MAIL_TO) {
+    const e = (x) => String(x ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+    await fetch("https://api.brevo.com/v3/smtp/email", {
+      method: "POST", headers: { "api-key": env.BREVO_API_KEY, "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ sender: { name: "Le Baliseur (diagnostic)", email: env.MAIL_FROM }, to: [{ email: env.MAIL_TO }],
+        replyTo: { email: lead.email, name: lead.first_name || lead.business },
+        subject: `Retour sur le diagnostic : ${lead.business} ${useful === 1 ? "👍" : useful === 0 ? "👎" : ""}`,
+        htmlContent: `<p><strong>${e(lead.business)}</strong> (score ${e(lead.total)}/100) · ${e(lead.email)}</p><p>${useful === 1 ? "Utile 👍" : useful === 0 ? "Pas vraiment utile 👎" : ""}</p><blockquote>${e(comment)}</blockquote>` }),
+    }).catch(() => {});
+  }
+  return out({ ok: true });
+}
+
 const PLACE_ID_RE = /^[A-Za-z0-9_-]{10,200}$/;
 
 // deps: { db, audit, saveRun, findBusiness, placeById }
@@ -162,6 +195,7 @@ export async function publicCheck(req, env, deps) {
     site: run.site || null,
     total: run.score.total,
     coverage: run.score.coverage,
+    fb: await fbToken(env, leadId),
     // The AI area only appears once it has actually run (an AI key is set).
     sections: Object.entries(run.score.sections).filter(([k, s]) => k !== "aivis" || s.pct != null).map(([k, s]) => ({ name: (SECTION_FR[k] || [k, k])[en ? 1 : 0], pct: s.pct })),
     top,

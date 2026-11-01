@@ -7,7 +7,7 @@ import { runChecks, score, plan, compare, streetOf, SECTIONS } from "./checks.js
 import APP_HTML from "./app.html";
 import LOGIN_HTML from "./login.html";
 import CHECK_HTML from "./check.html";
-import { publicCheck, publicLookup } from "./public.js";
+import { publicCheck, publicLookup, publicFeedback } from "./public.js";
 import { aiPrompts, askAi, analyseAi } from "./ai.js";
 
 const SCHEMA = [
@@ -35,6 +35,9 @@ async function db(env) {
     try { await env.DB.prepare("ALTER TABLE clients ADD COLUMN ai_prompts TEXT").run(); } catch { /* exists */ }
     // How the person says customers search for them (optional field on the public check).
     try { await env.DB.prepare("ALTER TABLE leads ADD COLUMN search TEXT").run(); } catch { /* exists */ }
+    // Feedback left on the public result: 1 useful, 0 not useful, plus an optional comment.
+    try { await env.DB.prepare("ALTER TABLE leads ADD COLUMN fb_useful INTEGER").run(); } catch { /* exists */ }
+    try { await env.DB.prepare("ALTER TABLE leads ADD COLUMN fb_comment TEXT").run(); } catch { /* exists */ }
     ready = true;
   }
   return env.DB;
@@ -230,6 +233,10 @@ export default {
         .replace("{{TS_WIDGET}}", env.TURNSTILE_SITEKEY ? `<div class="cf-turnstile" data-sitekey="${env.TURNSTILE_SITEKEY}" style="margin-top:12px"></div>` : "");
       return html(page, 200, { "content-security-policy":
         "frame-ancestors 'self' https://lebaliseur.fr https://www.lebaliseur.fr https://lebaliseur.com https://www.lebaliseur.com https://*.workers.dev " + (env.FRAME_EXTRA || "") });
+    }
+    if (url.pathname === "/public/feedback" && req.method === "POST") {
+      try { return await publicFeedback(req, env, { db }); }
+      catch (e) { console.error("feedback failed", e && e.stack || e); return json({ ok: false }, 500); }
     }
     if (url.pathname === "/public/lookup" && req.method === "POST") {
       try { return await publicLookup(req, env, { db, findCandidates }); }
