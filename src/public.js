@@ -62,7 +62,32 @@ async function turnstileOk(env, tokenValue, ip) {
   return (await r.json()).success === true;
 }
 
-// deps: { db, audit, saveRun, findBusiness }
+// Step 1 of the public check: show the person the Google profiles found for the name they typed,
+// so they confirm which one is theirs. No lead is recorded here.
+// deps: { db, findCandidates }
+export async function publicLookup(req, env, deps) {
+  const b = await req.json().catch(() => ({}));
+  const business = (b.business || "").trim().slice(0, 120);
+  const out = (data, status = 200) => new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } });
+  if (!business || !env.GOOGLE_API_KEY) return out({ candidates: [], best: -1 });
+  const D = await deps.db(env);
+  const ipHash = await hashIp(req.headers.get("cf-connecting-ip") || "unknown", env.APP_PASSWORD);
+  const perIp = await D.prepare("SELECT COUNT(*) n FROM lookups WHERE ip_hash=? AND date > datetime('now','-1 day')").bind(ipHash).first();
+  const perDay = await D.prepare("SELECT COUNT(*) n FROM lookups WHERE date > datetime('now','-1 day')").first();
+  // Over the limit: skip the confirmation step; the check itself still runs (and has its own limits).
+  if (perIp.n >= 20 || perDay.n >= 300) return out({ candidates: [], best: -1, skipped: true });
+  await D.prepare("INSERT INTO lookups (ip_hash, date) VALUES (?, datetime('now'))").bind(ipHash).run();
+  await D.prepare("DELETE FROM lookups WHERE date < datetime('now','-2 days')").run();
+  const city = (b.city || "").trim().slice(0, 60) || "Annecy";
+  const r = await deps.findCandidates(business, city, env.GOOGLE_API_KEY, normSite((b.site || "").slice(0, 200)));
+  if (r.error) return out({ candidates: [], best: -1 });
+  return out({ best: r.best, candidates: r.candidates.map((p) => ({ id: p.id, name: p.name, address: p.address,
+    rating: p.rating, reviews: p.reviews, category: p.category, website: p.website })) });
+}
+
+const PLACE_ID_RE = /^[A-Za-z0-9_-]{10,200}$/;
+
+// deps: { db, audit, saveRun, findBusiness, placeById }
 export async function publicCheck(req, env, deps) {
   const b = await req.json().catch(() => ({}));
   const en = b.lang === "en";
@@ -88,13 +113,23 @@ export async function publicCheck(req, env, deps) {
   const city = (b.city || "").trim().slice(0, 60) || "Annecy";
   const category = (b.category || "").trim().slice(0, 60);
   const site = normSite((b.site || "").slice(0, 200));
-  const lead = await D.prepare(`INSERT INTO leads (date, first_name, email, phone, business, city, category, site, consent, lang, ip_hash, status)
-    VALUES (datetime('now'),?,?,?,?,?,?,?,1,?,?,'running')`)
+  // Optional: how customers search for them, in their words. Used as the AI question.
+  const search = (b.search || "").replace(/[«»"<>]/g, "").replace(/\s+/g, " ").trim().slice(0, 120);
+  const lead = await D.prepare(`INSERT INTO leads (date, first_name, email, phone, business, city, category, site, consent, lang, ip_hash, status, search)
+    VALUES (datetime('now'),?,?,?,?,?,?,?,1,?,?,'running',?)`)
     .bind((b.first_name || "").trim().slice(0, 60), email, (b.phone || "").trim().slice(0, 30), business, city, category, site,
-      en ? "en" : "fr", ipHash).run();
+      en ? "en" : "fr", ipHash, search || null).run();
   const leadId = lead.meta.last_row_id;
 
-  const found = await deps.findBusiness(business, city, env.GOOGLE_API_KEY, { strict: true, site });
+  // The person confirmed their Google profile (or that they have none) in step 1; otherwise search as before.
+  const noProfile = b.no_profile === true;
+  let found = null;
+  if (!noProfile && PLACE_ID_RE.test(b.place_id || "")) {
+    found = await deps.placeById(b.place_id, env.GOOGLE_API_KEY);
+    if (!found.place) found = null; // unusable id: fall back to the normal search
+  }
+  if (noProfile) found = { error: "No Google profile (confirmed by the business)", notFound: true };
+  if (!found) found = await deps.findBusiness(business, city, env.GOOGLE_API_KEY, { strict: true, site });
   if (!found.place && !site) {
     await D.prepare("UPDATE leads SET status='not_found' WHERE id=?").bind(leadId).run();
     return fail("Nous n'avons pas trouvé cette entreprise sur Google. Ajoutez votre site web ou précisez le nom.",
@@ -110,14 +145,14 @@ export async function publicCheck(req, env, deps) {
     clientId = c.meta.last_row_id;
   }
   const client = await D.prepare("SELECT * FROM clients WHERE id=?").bind(clientId).first();
-  const run = await deps.saveRun(env, clientId, await deps.audit(env, client, { public: true }));
+  const run = await deps.saveRun(env, clientId, await deps.audit(env, client, { public: true, noProfile, aiQuery: search || null }));
   await D.prepare("UPDATE leads SET status='done', client_id=?, run_id=?, total=? WHERE id=?")
     .bind(clientId, run.id, run.score.total, leadId).run();
 
   const top = [...run.plan.now, ...run.plan.month, ...run.plan.quarter]
     .sort((a, b) => b.gain - a.gain).slice(0, 3)
     .map((r) => ({ label: en ? r.label : FR[r.id]?.[0] || r.label, fix: en ? r.fix : FR[r.id]?.[1] || r.fix }));
-  await notify(env, { leadId, en, business: run.google?.name || business, city, email,
+  await notify(env, { leadId, en, business: run.google?.name || business, city, email, search,
     first_name: (b.first_name || "").trim(), phone: (b.phone || "").trim(), site: run.site, total: run.score.total, top, clientId, reqUrl: req.url });
   return new Response(JSON.stringify({
     business: run.google?.name || business,
@@ -151,7 +186,7 @@ async function notify(env, d) {
     replyTo: { email: d.email, name: d.first_name || d.business },
     subject: `Diagnostic en ligne : ${d.business} · ${d.total}/100`,
     htmlContent: `<h2>Nouveau diagnostic en ligne</h2><p><strong>${e(d.business)}</strong> (${e(d.city)}) · score <strong>${d.total}/100</strong></p>
-      <p>${e(d.first_name)} · ${e(d.email)}${d.phone ? " · " + e(d.phone) : ""}<br>Site : ${e(d.site || "aucun")}</p>
+      <p>${e(d.first_name)} · ${e(d.email)}${d.phone ? " · " + e(d.phone) : ""}<br>Site : ${e(d.site || "aucun")}${d.search ? "<br>Recherche indiquée : « " + e(d.search) + " »" : ""}</p>
       <ol>${list}</ol><p><a href="${origin}/#/c/${d.clientId}">Ouvrir le rapport complet</a></p>`,
   });
   const en = d.en;

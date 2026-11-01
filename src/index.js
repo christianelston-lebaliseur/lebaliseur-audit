@@ -2,12 +2,12 @@
 // Enter a business name; it finds it on Google, crawls the site, scores it,
 // stores the result and re-audits every client monthly.
 import { crawl, normHost, normSite } from "./crawl.js";
-import { pagespeed, findBusiness, placeById, mapRank } from "./sources.js";
+import { pagespeed, findBusiness, findCandidates, placeById, mapRank } from "./sources.js";
 import { runChecks, score, plan, compare, streetOf, SECTIONS } from "./checks.js";
 import APP_HTML from "./app.html";
 import LOGIN_HTML from "./login.html";
 import CHECK_HTML from "./check.html";
-import { publicCheck } from "./public.js";
+import { publicCheck, publicLookup } from "./public.js";
 import { aiPrompts, askAi, analyseAi } from "./ai.js";
 
 const SCHEMA = [
@@ -23,6 +23,7 @@ const SCHEMA = [
     business TEXT, city TEXT, category TEXT, site TEXT, consent INTEGER, lang TEXT, ip_hash TEXT,
     status TEXT, client_id INTEGER, run_id INTEGER, total INTEGER)`,
   `CREATE INDEX IF NOT EXISTS leads_date ON leads(date)`,
+  `CREATE TABLE IF NOT EXISTS lookups (ip_hash TEXT, date TEXT)`,
 ];
 let ready = false;
 async function db(env) {
@@ -32,6 +33,8 @@ async function db(env) {
     try { await env.DB.prepare("ALTER TABLE clients ADD COLUMN prospect INTEGER DEFAULT 0").run(); } catch { /* exists */ }
     // Custom questions to ask the AI assistants, one per line.
     try { await env.DB.prepare("ALTER TABLE clients ADD COLUMN ai_prompts TEXT").run(); } catch { /* exists */ }
+    // How the person says customers search for them (optional field on the public check).
+    try { await env.DB.prepare("ALTER TABLE leads ADD COLUMN search TEXT").run(); } catch { /* exists */ }
     ready = true;
   }
   return env.DB;
@@ -60,8 +63,9 @@ async function authed(req, env) {
 // opts.public: the public check asks fewer questions of cheaper engines (AI_PUBLIC_ENGINES).
 function aiPlan(env, client, place, opts = {}) {
   if (opts.public && env.AI_PUBLIC === "off") return { prompts: [], skip: "AI check off for the public check" };
+  const c = opts.aiQuery ? { ...client, ai_prompts: `Qui me recommandes-tu pour « ${opts.aiQuery} » ? Donne-moi quelques noms.` } : client;
   return {
-    prompts: aiPrompts(client, place, opts.public ? 1 : 3),
+    prompts: aiPrompts(c, place, opts.public ? 1 : 3),
     only: opts.public ? (env.AI_PUBLIC_ENGINES || "gemini,perplexity").split(",").map((x) => x.trim()) : null,
   };
 }
@@ -72,7 +76,8 @@ function aiContext(client, place, site, rank) {
 
 export async function audit(env, client, opts = {}) {
   const key = env.GOOGLE_API_KEY;
-  const google = client.place_id ? await placeById(client.place_id, key)
+  const google = opts.noProfile ? { error: "No Google profile (confirmed by the business)", notFound: true }
+    : client.place_id ? await placeById(client.place_id, key)
     : await findBusiness(client.name, client.city, key, { strict: true, site: client.site });
   const place = google.place;
   const site = normSite(client.site) || normSite(place?.website);
@@ -226,8 +231,12 @@ export default {
       return html(page, 200, { "content-security-policy":
         "frame-ancestors 'self' https://lebaliseur.fr https://www.lebaliseur.fr https://lebaliseur.com https://www.lebaliseur.com https://*.workers.dev " + (env.FRAME_EXTRA || "") });
     }
+    if (url.pathname === "/public/lookup" && req.method === "POST") {
+      try { return await publicLookup(req, env, { db, findCandidates }); }
+      catch (e) { console.error("public lookup failed", e && e.stack || e); return json({ candidates: [], best: -1 }); }
+    }
     if (url.pathname === "/public/check" && req.method === "POST") {
-      try { return await publicCheck(req, env, { db, audit, saveRun, findBusiness }); }
+      try { return await publicCheck(req, env, { db, audit, saveRun, findBusiness, placeById }); }
       catch (e) {
         console.error("public check failed", e && e.stack || e);
         try {

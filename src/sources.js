@@ -106,6 +106,17 @@ export async function findBusiness(name, city, key, opts = {}) {
   return { place: all[0], alternatives: all.slice(1) };
 }
 
+// Up to 4 Google results to show the person, best match first (or -1 when none clearly matches).
+export async function findCandidates(name, city, key, site) {
+  const res = await placesSearch(`${name} ${city}`.trim(), key, null, 5);
+  if (res.error) return res;
+  const all = res.places.map(summarisePlace);
+  let best = all.findIndex((p) => siteMatch(p, site));
+  if (best < 0) best = all.findIndex((p) => sameBusiness(p, name, city, site));
+  const list = best > 0 ? [all[best], ...all.filter((_, i) => i !== best)] : all;
+  return { candidates: list.slice(0, 4), best: best >= 0 ? 0 : -1 };
+}
+
 // Load a known place by id (fresh rating/reviews each month).
 export async function placeById(id, key) {
   if (!key) return { error: "Google API key not set" };

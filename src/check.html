@@ -35,6 +35,11 @@ ol.prio{padding-left:20px;margin:0}ol.prio li{margin-bottom:10px}
 .found{background:var(--soft);border-radius:10px;padding:10px 12px;font-size:14px;margin:12px 0}
 section+section{margin-top:16px}
 .hidden{display:none}
+.pick{display:block;width:100%;text-align:left;background:#fff;color:var(--ink);border:1px solid var(--line);border-radius:11px;padding:12px 14px;margin:8px 0 0;font-weight:400;cursor:pointer}
+.pick:hover,.pick:focus{border-color:var(--green);outline:none}
+.pick.best{border:2px solid var(--green)}
+.pick strong{display:block;font-size:15px}.pick span{display:block;font-size:13px;color:var(--muted)}
+.linkbtn{background:none;color:var(--green);text-decoration:underline;padding:6px 0;width:auto;font-weight:600;margin-top:8px}
 </style>
 {{TS_SCRIPT}}
 </head><body>
@@ -51,6 +56,8 @@ section+section{margin-top:16px}
 </div>
 <label for="site"><span data-fr="Site web" data-en="Website"></span> <span class="opt" data-fr="(facultatif)" data-en="(optional)"></span></label>
 <input type="url" id="site" placeholder="https://" inputmode="url">
+<label for="search"><span data-fr="Comment vos clients vous cherchent-ils ?" data-en="How do customers search for you?"></span> <span class="opt" data-fr="(facultatif)" data-en="(optional)"></span></label>
+<input type="text" id="search" maxlength="120" data-ph-fr="ex. psychologue anxiété Annecy" data-ph-en="e.g. English-speaking dentist Annecy">
 <div class="two">
 <div><label for="first_name" data-fr="Prénom" data-en="First name"></label><input type="text" id="first_name" autocomplete="given-name"></div>
 <div><label for="phone"><span data-fr="Téléphone" data-en="Phone"></span> <span class="opt" data-fr="(facultatif)" data-en="(optional)"></span></label><input type="tel" id="phone" autocomplete="tel"></div>
@@ -62,6 +69,13 @@ section+section{margin-top:16px}
 <button id="go" data-fr="Voir mon score" data-en="See my score"></button>
 <p class="err" id="err" role="alert"></p>
 </form>
+<div id="confirm" class="hidden">
+<h2 id="confirm-title"></h2>
+<p class="small" id="confirm-help"></p>
+<div id="confirm-list"></div>
+<button type="button" class="pick" id="confirm-none"></button>
+<button type="button" class="linkbtn" id="confirm-back"></button>
+</div>
 <ul class="steps hidden" id="steps">
 <li data-fr="Recherche de votre fiche Google" data-en="Finding your Google profile"></li>
 <li data-fr="Position sur Google Maps face aux concurrents" data-en="Map position against competitors"></li>
@@ -80,6 +94,7 @@ const CONTACT = en ? "{{CONTACT_URL_EN}}" : "{{CONTACT_URL}}";
 if (new URLSearchParams(location.search).has("embed")) document.body.classList.add("embed");
 document.documentElement.lang = en ? "en" : "fr";
 document.querySelectorAll("[data-fr]").forEach((e) => e.textContent = e.dataset[en ? "en" : "fr"]);
+document.querySelectorAll("[data-ph-fr]").forEach((e) => e.placeholder = e.dataset[en ? "phEn" : "phFr"]);
 if (en) document.title = "Visibility check · Le Baliseur";
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -106,13 +121,55 @@ $("#f").addEventListener("submit", async (e) => {
   e.preventDefault();
   $("#err").textContent = "";
   const body = {lang: en ? "en" : "fr"};
-  ["business", "city", "category", "site", "first_name", "phone", "email"].forEach((k) => body[k] = $("#" + k).value);
+  ["business", "city", "category", "site", "search", "first_name", "phone", "email"].forEach((k) => body[k] = $("#" + k).value);
   body.consent = $("#consent").checked;
   const ts = document.querySelector("[name=cf-turnstile-response]"); if (ts) body.ts = ts.value;
   if (!body.business.trim()) { $("#err").textContent = en ? "Enter your business name." : "Indiquez le nom de votre entreprise."; return $("#business").focus(); }
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(body.email)) { $("#err").textContent = en ? "Enter a valid email address." : "Indiquez une adresse e-mail valide."; return $("#email").focus(); }
   if (!body.consent) { $("#err").textContent = en ? "Please tick the consent box." : "Merci de cocher la case d'accord."; return; }
-  $("#go").disabled = true; $("#f").classList.add("hidden"); progress(true);
+  $("#go").disabled = true;
+  // Step 1: "Est-ce bien vous ?" If anything goes wrong here, run the check as before.
+  let lk = null;
+  try {
+    const r = await fetch("/public/lookup", {method: "POST", headers: {"content-type": "application/json"},
+      body: JSON.stringify({business: body.business, city: body.city, site: body.site})});
+    if (r.ok) lk = await r.json();
+  } catch (e) { lk = null; }
+  $("#go").disabled = false;
+  if (lk && lk.candidates && lk.candidates.length) return askConfirm(body, lk);
+  return runCheck(body);
+});
+
+function askConfirm(body, lk) {
+  $("#f").classList.add("hidden");
+  $("#confirm-title").textContent = en ? "Is this your business?" : "Est-ce bien votre entreprise ?";
+  $("#confirm-help").textContent = lk.best === 0
+    ? (en ? "This is the Google profile we found. Confirm it, or pick another one." : "Voici la fiche Google trouvée. Confirmez-la, ou choisissez-en une autre.")
+    : (en ? "We found these Google profiles. Pick yours, if it's there." : "Voici les fiches Google trouvées. Choisissez la vôtre, si elle y est.");
+  $("#confirm-list").innerHTML = lk.candidates.map((c, k) =>
+    '<button type="button" class="pick' + (k === 0 && lk.best === 0 ? " best" : "") + '" data-id="' + esc(c.id) + '"><strong>' + esc(c.name) + '</strong>' +
+    '<span>' + esc(c.address || "") + '</span>' +
+    '<span>' + [c.category, c.rating != null ? c.rating + "★ · " + c.reviews + (en ? " reviews" : " avis") : ""].filter(Boolean).map(esc).join(" · ") + '</span>' +
+    (k === 0 && lk.best === 0 ? '<span style="color:var(--green);font-weight:700;margin-top:4px">' + (en ? "Yes, that's me" : "Oui, c'est moi") + ' →</span>' : "") + '</button>').join("");
+  $("#confirm-none").innerHTML = '<strong>' + (en ? "None of these" : "Aucune de ces fiches") + '</strong><span>' +
+    (en ? "Continue without a Google profile" : "Continuer sans fiche Google") + '</span>';
+  $("#confirm-back").textContent = en ? "← Change what I typed" : "← Modifier ma saisie";
+  $("#confirm").classList.remove("hidden"); resize();
+  document.querySelectorAll("#confirm-list .pick").forEach((b) => b.onclick = () => runCheck({...body, place_id: b.dataset.id}));
+  $("#confirm-none").onclick = () => {
+    if (!body.site.trim()) {
+      $("#confirm").classList.add("hidden"); $("#f").classList.remove("hidden");
+      $("#err").textContent = en ? "Without a Google profile, add your website so we have something to check." : "Sans fiche Google, ajoutez votre site web pour que nous ayons quelque chose à analyser.";
+      $("#site").focus(); resize(); return;
+    }
+    runCheck({...body, no_profile: true});
+  };
+  $("#confirm-back").onclick = () => { $("#confirm").classList.add("hidden"); $("#f").classList.remove("hidden"); resize(); };
+}
+
+async function runCheck(body) {
+  $("#confirm").classList.add("hidden"); $("#f").classList.add("hidden"); $("#err").textContent = "";
+  $("#go").disabled = true; progress(true);
   try {
     const r = await fetch("/public/check", {method: "POST", headers: {"content-type": "application/json"}, body: JSON.stringify(body)});
     const j = await r.json();
@@ -124,7 +181,7 @@ $("#f").addEventListener("submit", async (e) => {
     if (window.turnstile) try { turnstile.reset(); } catch (e) {}
   }
   progress(false); $("#go").disabled = false; resize();
-});
+}
 
 function show(j) {
   const n = j.total, r = 56, c = 2 * Math.PI * r;
