@@ -13,6 +13,19 @@ const AI_BOTS = ["GPTBot", "OAI-SearchBot", "ChatGPT-User", "PerplexityBot", "Cl
 
 export const normHost = (h) => (h || "").toLowerCase().replace(/^www\./, "");
 
+// Turns whatever a person typed into a usable address, or "" if it isn't one:
+// "https:www.site.fr", "http//site.fr", "www.site.fr/", " Site.fr " → "https://www.site.fr" etc.
+export function normSite(input) {
+  let s = String(input || "").trim().replace(/\s+/g, "");
+  if (!s) return "";
+  s = s.replace(/^(?:https?)?:?\/*/i, "").replace(/^(?:https?:?\/*)+/i, ""); // drop any scheme, mangled or not
+  try {
+    const u = new URL("https://" + s);
+    if (!/\.[a-z]{2,}$/i.test(u.hostname)) return "";
+    return u.origin + (u.pathname === "/" ? "" : u.pathname);
+  } catch { return ""; }
+}
+
 async function get(url, opts = {}) {
   const t0 = Date.now();
   try {

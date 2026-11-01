@@ -1,3 +1,5 @@
+import { normSite } from "./crawl.js";
+
 // Public visibility check: no login, email required, shows the score and top 3 priorities,
 // and records the person as a lead linked to the full report in the private app.
 
@@ -85,7 +87,7 @@ export async function publicCheck(req, env, deps) {
 
   const city = (b.city || "").trim().slice(0, 60) || "Annecy";
   const category = (b.category || "").trim().slice(0, 60);
-  const site = (b.site || "").trim().slice(0, 200);
+  const site = normSite((b.site || "").slice(0, 200));
   const lead = await D.prepare(`INSERT INTO leads (date, first_name, email, phone, business, city, category, site, consent, lang, ip_hash, status)
     VALUES (datetime('now'),?,?,?,?,?,?,?,1,?,?,'running')`)
     .bind((b.first_name || "").trim().slice(0, 60), email, (b.phone || "").trim().slice(0, 30), business, city, category, site,

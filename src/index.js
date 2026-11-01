@@ -1,7 +1,7 @@
 // Le Baliseur audit tool — Cloudflare Worker.
 // Enter a business name; it finds it on Google, crawls the site, scores it,
 // stores the result and re-audits every client monthly.
-import { crawl, normHost } from "./crawl.js";
+import { crawl, normHost, normSite } from "./crawl.js";
 import { pagespeed, findBusiness, placeById, mapRank } from "./sources.js";
 import { runChecks, score, plan, compare, streetOf, SECTIONS } from "./checks.js";
 import APP_HTML from "./app.html";
@@ -66,7 +66,7 @@ function aiPlan(env, client, place, opts = {}) {
   };
 }
 function aiContext(client, place, site, rank) {
-  return { names: [client.name, place?.name], siteHost: site ? normHost(new URL(site).hostname) : "",
+  return { names: [client.name, place?.name], siteHost: normSite(site) ? normHost(new URL(normSite(site)).hostname) : "",
     city: client.city || "", category: client.category || place?.category || "", competitors: rank?.competitors || [] };
 }
 
@@ -75,8 +75,7 @@ export async function audit(env, client, opts = {}) {
   const google = client.place_id ? await placeById(client.place_id, key)
     : await findBusiness(client.name, client.city, key, { strict: true, site: client.site });
   const place = google.place;
-  let site = client.site || place?.website || "";
-  if (site && !/^https?:\/\//.test(site)) site = "https://" + site;
+  const site = normSite(client.site) || normSite(place?.website);
   const query = client.query || [client.category, client.city].filter(Boolean).join(" ");
   const ap = aiPlan(env, client, place, opts);
   const [crawlRes, psi, rank, aiRaw] = await Promise.all([
@@ -197,7 +196,7 @@ async function api(req, env, url) {
     const L = last ? JSON.parse(last.data) : {};
     const place = L.google || null;
     const ap = aiPlan(env, client, place);
-    const ai = analyseAi(await askAi(env, ap.prompts, client.city), aiContext(client, place, L.site || client.site, L.rank));
+    const ai = analyseAi(await askAi(env, ap.prompts, client.city), aiContext(client, place, normSite(L.site) || normSite(client.site), L.rank));
     return json({ ai, test: true });
   }
   if ((mm = path.match(/^\/api\/clients\/(\d+)\/audit$/)) && m === "POST") {
