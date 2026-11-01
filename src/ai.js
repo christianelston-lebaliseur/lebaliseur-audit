@@ -164,7 +164,9 @@ function listPosition(raw, key) {
   return null;
 }
 
-const NO_INFO = /(aucune information|pas d.information|pas trouv|je ne (?:trouve|dispose|connais)|introuvable|no (?:specific )?information|couldn.t find|could not find|unable to find|not able to find|no results)/i;
+// "Doesn't know it" = the answer says it found nothing about the business itself. Remarks about
+// missing reviews ("pas trouvé assez d'avis") or missing details don't count.
+const NO_INFO = /(je (?:n.ai|ne) (?:pas |)(?:trouvé|trouve) aucune (?:information|trace|mention)|aucune information (?:sur|concernant|à propos)|je ne connais pas|je ne dispose (?:pas|d.aucune) d.information|introuvable|no (?:specific |reliable )?information (?:about|on)|(?:couldn.t|could not|unable to|wasn.t able to) find any (?:information|mention|trace))/i;
 
 export function analyseAi(raw, { names, siteHost, city, category, competitors = [] }) {
   if (!raw || raw.error) return { error: raw?.error || "not run" };

@@ -6,7 +6,8 @@ const SKIP_EXT = /\.(pdf|jpe?g|png|gif|webp|svg|zip|mp4|mp3|docx?|xlsx?|ico|css|
 const PHONE_RE = /(?:\+33\s?|\b0)[1-9](?:[\s.-]?\d{2}){4}/g;
 export const BOOKING_HOSTS = ["doctolib", "zenchef", "thefork", "lafourchette", "calendly", "resalib",
   "planity", "booking.com", "reservit", "amenitiz", "lodgify", "mews", "fresha", "treatwell",
-  "funbooker", "crenolib", "maiia", "keldoc", "simplybook", "sumup", "guestonline"];
+  "funbooker", "crenolib", "maiia", "keldoc", "simplybook", "sumup", "guestonline",
+  "cal.com", "calendar.app.google", "calendar.google.com/calendar/appointments", "tidycal", "zcal", "acuityscheduling"];
 const AI_BOTS = ["GPTBot", "OAI-SearchBot", "ChatGPT-User", "PerplexityBot", "ClaudeBot",
   "Google-Extended", "Bingbot"];
 
