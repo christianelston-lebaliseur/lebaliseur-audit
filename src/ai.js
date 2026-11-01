@@ -98,10 +98,11 @@ export function aiPrompts(client, place, limit = 3) {
   while (words.length > 1 && trim.has(plain(words[words.length - 1]))) words.pop();
   const name = words.join(" ");
   const custom = (client.ai_prompts || "").split("\n").map((s) => s.trim()).filter(Boolean);
+  // Worded so any activity fits ("psychologue", "plombier", "marketing digital", "restaurant italien").
   const generic = custom.length ? custom : cat ? [
-    `Quel est le meilleur ${cat} à ${city} ? Donne-moi quelques noms.`,
-    `Je cherche un ${cat} à ${city}. Lequel me recommandes-tu ?`,
-    `Can you recommend a good ${cat} in ${city}?`,
+    `Qui me recommandes-tu à ${city} pour « ${cat} » ? Donne-moi quelques noms.`,
+    `Quelles sont les meilleures adresses à ${city} pour « ${cat} » ?`,
+    `Who would you recommend in ${city} for "${cat}"? Give me a few names.`,
   ] : [];
   return [...generic.slice(0, limit).map((q) => ({ q, branded: false })),
     { q: `Que sais-tu de « ${name} » à ${city} ? Est-ce une bonne adresse ?`, branded: true }];
