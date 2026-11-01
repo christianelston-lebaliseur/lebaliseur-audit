@@ -131,7 +131,7 @@ export async function parsePage(resp, city, street = "") {
       element(e) { skipDepth++; e.onEndTag(() => { skipDepth--; }); },
     })
     .on("body", {
-      text(t) { if (!skipDepth && text.length < 300000) text += t.text + (t.lastInTextNode ? " " : ""); },
+      text(t) { if (!skipDepth && text.length < 50000) text += t.text + (t.lastInTextNode ? " " : ""); },
     });
 
   await rw.transform(resp).arrayBuffer();

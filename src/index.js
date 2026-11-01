@@ -96,7 +96,9 @@ export async function audit(env, client, opts = {}) {
   const query = client.query || [client.category, client.city].filter(Boolean).join(" ");
   const ap = aiPlan(env, client, place, opts, country);
   const [crawlRes, psi, rank, aiRaw] = await Promise.all([
-    site ? crawl(site, client.city, opts.public ? 12 : 25, streetOf(place?.address))
+    site ? // Pages read per audit. Kept low for the free Cloudflare plan (10 ms of processing per request);
+    // on Workers Paid set the CRAWL_PAGES variable to 25 for fuller reports.
+    crawl(site, client.city, Math.min(+env.CRAWL_PAGES || 10, opts.public ? 12 : 25), streetOf(place?.address))
       : { site: { reachable: false }, pages: [], errors: ["No website known"] },
     site ? pagespeed(site, key) : { error: "no website" },
     place && query ? mapRank(place.id, query, key, place.location, country) : { error: place ? "no search set" : "no profile" },
