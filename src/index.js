@@ -80,7 +80,7 @@ export async function audit(env, client, opts = {}) {
   const query = client.query || [client.category, client.city].filter(Boolean).join(" ");
   const ap = aiPlan(env, client, place, opts);
   const [crawlRes, psi, rank, aiRaw] = await Promise.all([
-    site ? crawl(site, client.city, 25, streetOf(place?.address))
+    site ? crawl(site, client.city, opts.public ? 12 : 25, streetOf(place?.address))
       : { site: { reachable: false }, pages: [], errors: ["No website known"] },
     site ? pagespeed(site, key) : { error: "no website" },
     place && query ? mapRank(place.id, query, key, place.location) : { error: place ? "no search set" : "no profile" },
@@ -229,7 +229,14 @@ export default {
     }
     if (url.pathname === "/public/check" && req.method === "POST") {
       try { return await publicCheck(req, env, { db, audit, saveRun, findBusiness }); }
-      catch (e) { return json({ error: "Une erreur est survenue, réessayez plus tard." }, 500); }
+      catch (e) {
+        console.error("public check failed", e && e.stack || e);
+        try {
+          await env.DB.prepare("UPDATE leads SET status=? WHERE id=(SELECT MAX(id) FROM leads WHERE status='running')")
+            .bind("error: " + String(e && e.message || e).slice(0, 150)).run();
+        } catch { /* ignore */ }
+        return json({ error: "Le diagnostic n'a pas pu aboutir cette fois. Réessayez dans quelques minutes, ou écrivez-moi à chris@lebaliseur.fr." }, 500);
+      }
     }
     if (url.pathname === "/login" && req.method === "POST") {
       const f = await req.formData();

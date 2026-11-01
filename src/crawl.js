@@ -31,7 +31,7 @@ async function get(url, opts = {}) {
 async function getText(url) {
   const { r } = await get(url);
   if (!r || r.status !== 200) return "";
-  return (await r.text()).slice(0, 200000);
+  try { return (await r.text()).slice(0, 200000); } catch { return ""; }
 }
 
 // Parse one HTML response into page facts.
@@ -204,7 +204,9 @@ export async function crawl(startUrl, city = "", maxPages = 25, street = "") {
     }
     if (resp.status >= 400) { out.pages.push({ url, status: resp.status }); continue; }
     if (!(resp.headers.get("content-type") || "").includes("text/html")) continue;
-    const page = await parsePage(resp, city, street);
+    let page;
+    try { page = await parsePage(resp, city, street); }
+    catch (e) { out.pages.push({ url, status: 0, error: String(e.message || e).slice(0, 120) }); continue; }
     if (!s.generator && page.generator) s.generator = page.generator;
     out.pages.push(page);
     for (const link of page.internal_links) {
