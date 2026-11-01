@@ -28,7 +28,12 @@ async function post(url, headers, body) {
   const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json", ...headers },
     body: JSON.stringify(body), signal: AbortSignal.timeout(T) });
   const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(j.error?.message || j.detail || j.error || `HTTP ${r.status}`);
+  if (!r.ok) {
+    const e = new Error(j.error?.message || j.detail || j.error || `HTTP ${r.status}`);
+    e.status = r.status;
+    e.retryAfter = +r.headers.get("retry-after") || 0;
+    throw e;
+  }
   return j;
 }
 // Text of the assistant message in a Responses-style output array (OpenAI, Perplexity Agent API).
@@ -88,7 +93,10 @@ export const cleanName = (n) => (n || "").split(/\s+[-–—|]\s+/)[0].trim();
 export function aiPrompts(client, place, limit = 3) {
   const city = client.city || "Annecy";
   const cat = (client.category || place?.category || "").trim().toLowerCase();
-  const name = cleanName(place?.name || client.name);
+  const trim = new Set([...plain(city).split(" "), ...plain(cat).split(" ")].filter(Boolean));
+  const words = cleanName(place?.name || client.name).split(/\s+/);
+  while (words.length > 1 && trim.has(plain(words[words.length - 1]))) words.pop();
+  const name = words.join(" ");
   const custom = (client.ai_prompts || "").split("\n").map((s) => s.trim()).filter(Boolean);
   const generic = custom.length ? custom : cat ? [
     `Quel est le meilleur ${cat} à ${city} ? Donne-moi quelques noms.`,
@@ -103,17 +111,28 @@ export function aiPrompts(client, place, limit = 3) {
 export async function askAi(env, prompts, city, opts = {}) {
   const engines = Object.keys(ENGINES).filter((id) => env[ENGINES[id].key] && (!opts.only || opts.only.includes(id)));
   if (!engines.length) return { error: "no AI API key set" };
-  const jobs = engines.flatMap((engine) => prompts.map((p) => ({ engine, ...p })));
-  const answers = await Promise.all(jobs.map(async (a) => {
-    try {
-      const r = await ENGINES[a.engine].run(env, a.q, city || "Annecy");
-      if (!r.text) throw new Error("empty answer");
-      return { ...a, text: r.text.slice(0, 3000), sources: r.sources };
-    } catch (e) {
-      return { ...a, error: String(e.message || e).slice(0, 200) };
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  // One question at a time per engine (new API accounts allow only a few requests at once);
+  // engines run side by side. A "slow down" reply is retried twice after a pause.
+  const ask = async (engine, p) => {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const r = await ENGINES[engine].run(env, p.q, city || "Annecy");
+        if (!r.text) throw new Error("empty answer");
+        return { engine, ...p, text: r.text.slice(0, 3000), sources: r.sources };
+      } catch (e) {
+        const limited = e.status === 429 || /rate limit/i.test(e.message || "");
+        if (limited && attempt < 2) { await sleep(Math.min(20, e.retryAfter || 4 * (attempt + 1)) * 1000); continue; }
+        return { engine, ...p, error: String(e.message || e).slice(0, 200) };
+      }
     }
+  };
+  const perEngine = await Promise.all(engines.map(async (engine) => {
+    const out = [];
+    for (const p of prompts) out.push(await ask(engine, p));
+    return out;
   }));
-  return { engines, answers };
+  return { engines, answers: perEngine.flat() };
 }
 
 // ---- Analysis ----
