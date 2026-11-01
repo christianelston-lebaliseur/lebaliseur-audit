@@ -4,6 +4,8 @@
 const UA = "Mozilla/5.0 (compatible; LeBaliseurAudit/1.0; +https://lebaliseur.fr)";
 const SKIP_EXT = /\.(pdf|jpe?g|png|gif|webp|svg|zip|mp4|mp3|docx?|xlsx?|ico|css|js|xml|txt)$/i;
 const PHONE_RE = /(?:\+33\s?|\b0)[1-9](?:[\s.-]?\d{2}){4}/g;
+// UK numbers: 020 7946 0958, 01424 123456, 07700 900123, +44 (0)1424 123456.
+const UK_PHONE_RE = /(?:\+44\s?(?:\(0\)\s?)?|\b0)[1-9](?:[\s-]?\d){8,9}\b/g;
 export const BOOKING_HOSTS = ["doctolib", "zenchef", "thefork", "lafourchette", "calendly", "resalib",
   "planity", "booking.com", "reservit", "amenitiz", "lodgify", "mews", "fresha", "treatwell",
   "funbooker", "crenolib", "maiia", "keldoc", "simplybook", "sumup", "guestonline",
@@ -142,7 +144,8 @@ export async function parsePage(resp, city, street = "") {
   p.words = text ? text.split(" ").length : 0;
   const low = text.toLowerCase();
   if (city) p.city_mentions = low.split(city.toLowerCase()).length - 1;
-  p.phones = [...new Set((text.match(PHONE_RE) || []).map((x) => x.replace(/[\s.-]/g, "")))].slice(0, 5);
+  p.phones = [...new Set([...(text.match(PHONE_RE) || []), ...(text.match(UK_PHONE_RE) || [])]
+    .map((x) => x.replace(/[\s.()-]/g, "")))].slice(0, 5);
   const plain = (x) => x.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
   p.postcodes = [...new Set(text.match(/\b(?:0[1-9]|[1-8]\d|9[0-5])\d{3}\b/g) || [])].slice(0, 5);
   p.has_street = !!street && plain(text).includes(plain(street));
