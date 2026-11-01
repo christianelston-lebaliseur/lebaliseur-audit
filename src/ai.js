@@ -151,7 +151,9 @@ export function nameKey(name, city, category) {
   const words = plain(cleanName(name)).split(" ").filter((t) => t.length >= 4 && !STOP.has(t) && !near(t));
   return words[words.length - 1] || "";
 }
-const has = (text, key) => !!key && new RegExp(`\\b${key}\\b`).test(text);
+// Also matches when spacing differs: "lebaliseur" in "Le Baliseur", "fathersons" in "Father Sons".
+const has = (text, key) => !!key && (new RegExp(`\\b${key}\\b`).test(text) ||
+  (key.length >= 6 && text.replace(/ /g, "").includes(key)));
 
 // Position when the answer is a numbered list: the number of the item that names the business.
 function listPosition(raw, key) {
