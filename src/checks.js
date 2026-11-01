@@ -172,12 +172,16 @@ export function runChecks(ctx) {
     "Create one page per main service, each answering who, what, where and how much.", "L");
 
   // ---------- Trust & conversion (10) ----------
-  add("legal", "trust", "Legal notice (mentions légales)", 3,
+  const uk = ctx.country === "GB";
+  if (uk) add("legal", "trust", "Business details (terms or legal page)", 3,
+    () => like(["legal", "terms", "company"]).length ? [1, "found"] : [0, "not found"],
+    "Show the registered business name, address and, for a limited company, the company number on a terms or legal page.", "S");
+  else add("legal", "trust", "Legal notice (mentions légales)", 3,
     () => like(["mentions", "legal"]).length ? [1, "found"] : [0, "not found (required in France)"],
     "Publish mentions légales: owner, SIRET, address, host.", "S");
   add("privacy", "trust", "Privacy policy", 2,
     () => like(["confidential", "privacy", "rgpd", "donnees", "cookies"]).length ? [1, "found"] : [0, "not found"],
-    "Add a short privacy page (RGPD) covering forms and analytics.", "S");
+    uk ? "Add a short privacy page (UK GDPR) covering forms and analytics." : "Add a short privacy page (RGPD) covering forms and analytics.", "S");
   add("contact", "trust", "Click-to-call and contact page", 2,
     () => {
       const t = ok.some((p) => p.tel_link);
@@ -190,7 +194,8 @@ export function runChecks(ctx) {
       const b = [...new Set(ok.flatMap((p) => p.booking))];
       return [b.length ? 1 : 0, b.join(", ") || "none"];
     },
-    "Link the booking tool (Doctolib, Zenchef…) prominently on every page.", "S");
+    uk ? "Link the booking tool (Calendly, Fresha, OpenTable…) prominently on every page."
+      : "Link the booking tool (Doctolib, Zenchef…) prominently on every page.", "S");
 
   // ---------- Recommended by AI assistants (15) ----------
   // Real answers from ChatGPT / Perplexity / Gemini with web search (see ai.js).

@@ -2,7 +2,7 @@
 // Enter a business name; it finds it on Google, crawls the site, scores it,
 // stores the result and re-audits every client monthly.
 import { crawl, normHost, normSite } from "./crawl.js";
-import { pagespeed, findBusiness, findCandidates, placeById, mapRank } from "./sources.js";
+import { pagespeed, findBusiness, findCandidates, placeById, mapRank, countryOf } from "./sources.js";
 import { runChecks, score, plan, compare, streetOf, SECTIONS } from "./checks.js";
 import APP_HTML from "./app.html";
 import LOGIN_HTML from "./login.html";
@@ -64,11 +64,14 @@ async function authed(req, env) {
 
 // ---- The audit itself ----
 // opts.public: the public check asks fewer questions of cheaper engines (AI_PUBLIC_ENGINES).
-function aiPlan(env, client, place, opts = {}) {
+function aiPlan(env, client, place, opts = {}, country = "FR") {
   if (opts.public && env.AI_PUBLIC === "off") return { prompts: [], skip: "AI check off for the public check" };
-  const c = opts.aiQuery ? { ...client, ai_prompts: `Qui me recommandes-tu pour « ${opts.aiQuery} » ? Donne-moi quelques noms.` } : client;
+  const ask = country === "GB" || opts.lang === "en"
+    ? `Who would you recommend for "${opts.aiQuery}"? Give me a few names.`
+    : `Qui me recommandes-tu pour « ${opts.aiQuery} » ? Donne-moi quelques noms.`;
+  const c = opts.aiQuery ? { ...client, ai_prompts: ask } : client;
   return {
-    prompts: aiPrompts(c, place, opts.public ? 1 : 3),
+    prompts: aiPrompts(c, place, opts.public ? 1 : 3, country),
     only: opts.public ? (env.AI_PUBLIC_ENGINES || "gemini,perplexity").split(",").map((x) => x.trim()) : null,
   };
 }
@@ -82,26 +85,32 @@ export async function audit(env, client, opts = {}) {
   const google = opts.noProfile ? { error: "No Google profile (confirmed by the business)", notFound: true }
     : client.place_id ? await placeById(client.place_id, key)
     : await findBusiness(client.name, client.city, key, { strict: true, site: client.site });
+  // UK business: reload its profile in English (category, address) and search from the UK.
+  const country = countryOf(google.place, client.site);
+  if (country === "GB" && google.place?.id) {
+    const en = await placeById(google.place.id, key, "GB");
+    if (en.place) google.place = en.place;
+  }
   const place = google.place;
   const site = normSite(client.site) || normSite(place?.website);
   const query = client.query || [client.category, client.city].filter(Boolean).join(" ");
-  const ap = aiPlan(env, client, place, opts);
+  const ap = aiPlan(env, client, place, opts, country);
   const [crawlRes, psi, rank, aiRaw] = await Promise.all([
     site ? crawl(site, client.city, opts.public ? 12 : 25, streetOf(place?.address))
       : { site: { reachable: false }, pages: [], errors: ["No website known"] },
     site ? pagespeed(site, key) : { error: "no website" },
-    place && query ? mapRank(place.id, query, key, place.location) : { error: place ? "no search set" : "no profile" },
-    ap.skip ? { error: ap.skip } : askAi(env, ap.prompts, client.city, { only: ap.only }),
+    place && query ? mapRank(place.id, query, key, place.location, country) : { error: place ? "no search set" : "no profile" },
+    ap.skip ? { error: ap.skip } : askAi(env, ap.prompts, client.city, { only: ap.only, country }),
   ]);
   const ai = analyseAi(aiRaw, aiContext(client, place, site, rank));
-  const ctx = { crawl: crawlRes, pagespeed: psi, google, rank, city: client.city || "",
+  const ctx = { crawl: crawlRes, pagespeed: psi, google, rank, city: client.city || "", country,
     category: client.category || "", siteHost: site ? normHost(new URL(site).hostname) : "", ai };
   const results = runChecks(ctx);
   const sc = score(results);
   const pages = crawlRes.pages.map((p) => ({ url: p.url, status: p.status, title: p.title, words: p.words,
     h1: p.h1, meta: !!p.meta_description, schema: p.schema_types, noindex: p.noindex }));
   return {
-    date: new Date().toISOString(), site, query, score: sc, results, plan: plan(results),
+    date: new Date().toISOString(), site, query, country, score: sc, results, plan: plan(results),
     google: place || null, google_error: google.error || null, rank, pagespeed: psi,
     site_facts: crawlRes.site, crawl_errors: crawlRes.errors, pages, ai,
   };
@@ -203,8 +212,9 @@ async function api(req, env, url) {
     const last = await D.prepare("SELECT data FROM runs WHERE client_id=? ORDER BY date DESC LIMIT 1").bind(client.id).first();
     const L = last ? JSON.parse(last.data) : {};
     const place = L.google || null;
-    const ap = aiPlan(env, client, place);
-    const ai = analyseAi(await askAi(env, ap.prompts, client.city), aiContext(client, place, normSite(L.site) || normSite(client.site), L.rank));
+    const country = countryOf(place, client.site);
+    const ap = aiPlan(env, client, place, {}, country);
+    const ai = analyseAi(await askAi(env, ap.prompts, client.city, { country }), aiContext(client, place, normSite(L.site) || normSite(client.site), L.rank));
     return json({ ai, test: true });
   }
   if ((mm = path.match(/^\/api\/clients\/(\d+)\/audit$/)) && m === "POST") {

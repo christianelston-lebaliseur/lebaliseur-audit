@@ -46,22 +46,22 @@ const annotations = (j) => (j.output || []).filter((o) => o.type === "message").
   .flatMap((c) => c.annotations || []).filter((a) => a.url).map((a) => src(a.url, a.title));
 
 // ChatGPT: OpenAI Responses API with its web search tool (the same search ChatGPT uses).
-async function openai(env, q, city) {
+async function openai(env, q, city, country = "FR") {
   const j = await post("https://api.openai.com/v1/responses", { Authorization: `Bearer ${env.OPENAI_API_KEY}` }, {
     model: env.OPENAI_MODEL || "gpt-5.5",
-    tools: [{ type: "web_search", user_location: { type: "approximate", country: "FR", city } }],
+    tools: [{ type: "web_search", user_location: { type: "approximate", country, city } }],
     input: q,
   });
   return { text: outputText(j), sources: dedupe(annotations(j)) };
 }
 
 // Perplexity: Agent API with Perplexity's own Sonar model and web search.
-async function perplexity(env, q, city) {
+async function perplexity(env, q, city, country = "FR") {
   const j = await post("https://api.perplexity.ai/v1/agent", { Authorization: `Bearer ${env.PERPLEXITY_API_KEY}` }, {
     model: env.PERPLEXITY_MODEL || "perplexity/sonar",
     input: q,
     max_output_tokens: 1500,
-    tools: [{ type: "web_search", user_location: { country: "FR", city } }],
+    tools: [{ type: "web_search", user_location: { country, city } }],
   });
   let text = outputText(j);
   const results = (j.output || []).filter((o) => o.type === "search_results").flatMap((o) => o.results || []).concat(j.results || []);
@@ -90,7 +90,8 @@ export const cleanName = (n) => (n || "").split(/\s+[-–—|]\s+/)[0].trim();
 // ---- Questions ----
 // Custom questions (one per line on the client) replace the default non-branded ones.
 // The last question is always about the business itself, to see whether the AI knows it.
-export function aiPrompts(client, place, limit = 3) {
+// UK businesses get English questions, asked as if from the UK (see countryOf in sources.js).
+export function aiPrompts(client, place, limit = 3, country = "FR") {
   const city = client.city || "Annecy";
   const cat = (client.category || place?.category || "").trim().toLowerCase();
   const trim = new Set([...plain(city).split(" "), ...plain(cat).split(" ")].filter(Boolean));
@@ -99,13 +100,19 @@ export function aiPrompts(client, place, limit = 3) {
   const name = words.join(" ");
   const custom = (client.ai_prompts || "").split("\n").map((s) => s.trim()).filter(Boolean);
   // Worded so any activity fits ("psychologue", "plombier", "marketing digital", "restaurant italien").
-  const generic = custom.length ? custom : cat ? [
+  const uk = country === "GB";
+  const generic = custom.length ? custom : !cat ? [] : uk ? [
+    `Who would you recommend in ${city} for "${cat}"? Give me a few names.`,
+    `What are the best options in ${city} for "${cat}"?`,
+    `I'm looking for "${cat}" in or near ${city}. Who's good?`,
+  ] : [
     `Qui me recommandes-tu à ${city} pour « ${cat} » ? Donne-moi quelques noms.`,
     `Quelles sont les meilleures adresses à ${city} pour « ${cat} » ?`,
     `Who would you recommend in ${city} for "${cat}"? Give me a few names.`,
-  ] : [];
-  return [...generic.slice(0, limit).map((q) => ({ q, branded: false })),
-    { q: `Que sais-tu de « ${name} » à ${city} ? Est-ce une bonne adresse ?`, branded: true }];
+  ];
+  const branded = uk ? `What do you know about "${name}" in ${city}? Are they any good?`
+    : `Que sais-tu de « ${name} » à ${city} ? Est-ce une bonne adresse ?`;
+  return [...generic.slice(0, limit).map((q) => ({ q, branded: false })), { q: branded, branded: true }];
 }
 
 // opts.only: engine ids to use (the public check uses a cheaper subset).
@@ -118,7 +125,7 @@ export async function askAi(env, prompts, city, opts = {}) {
   const ask = async (engine, p) => {
     for (let attempt = 0; ; attempt++) {
       try {
-        const r = await ENGINES[engine].run(env, p.q, city || "Annecy");
+        const r = await ENGINES[engine].run(env, p.q, city || "Annecy", opts.country || "FR");
         if (!r.text) throw new Error("empty answer");
         return { engine, ...p, text: r.text.slice(0, 3000), sources: r.sources };
       } catch (e) {
@@ -140,7 +147,7 @@ export async function askAi(env, prompts, city, opts = {}) {
 const STOP = new Set(("le la les des du de et au aux en sur pour par une un the and of chez sarl sas sasu eurl " +
   "cabinet centre center maison atelier studio boutique restaurant hotel france haute savoie coaching consulting conseil " +
   "services formation therapie therapy holistic holistique massage institut salon agence brasserie bistrot pizzeria " +
-  "traiteur cafe psychologue psychologist").split(" "));
+  "traiteur cafe psychologue psychologist ltd limited company agency uk").split(" "));
 
 // The word that identifies a name: the last distinctive word once the town, the activity and common words
 // are dropped. "Caroline Lillaz – Psychologue Annecy" → "lillaz"; "L'Estaminet" → "estaminet";
@@ -166,7 +173,7 @@ function listPosition(raw, key) {
 
 // "Doesn't know it" = the answer says it found nothing about the business itself. Remarks about
 // missing reviews ("pas trouvé assez d'avis") or missing details don't count.
-const NO_INFO = /(je (?:n.ai|ne) (?:pas |)(?:trouvé|trouve) aucune (?:information|trace|mention)|aucune information (?:sur|concernant|à propos)|je ne connais pas|je ne dispose (?:pas|d.aucune) d.information|introuvable|no (?:specific |reliable )?information (?:about|on)|(?:couldn.t|could not|unable to|wasn.t able to) find any (?:information|mention|trace))/i;
+const NO_INFO = /(je (?:n.ai|ne) (?:pas |)(?:trouvé|trouve) aucune (?:information|trace|mention)|aucune information (?:sur|concernant|à propos)|je ne connais pas|je ne dispose (?:pas|d.aucune) d.information|introuvable|no (?:specific |reliable )?information (?:about|on)|(?:couldn.t|could not|unable to|wasn.t able to) find any (?:specific |reliable )?(?:information|mention|trace|details)|i (?:don.t|do not) have (?:any )?(?:specific |reliable )?information|(?:i.m|i am) not familiar with)/i;
 
 export function analyseAi(raw, { names, siteHost, city, category, competitors = [] }) {
   if (!raw || raw.error) return { error: raw?.error || "not run" };

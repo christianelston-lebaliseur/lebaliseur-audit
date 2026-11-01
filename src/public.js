@@ -178,7 +178,7 @@ export async function publicCheck(req, env, deps) {
     clientId = c.meta.last_row_id;
   }
   const client = await D.prepare("SELECT * FROM clients WHERE id=?").bind(clientId).first();
-  const run = await deps.saveRun(env, clientId, await deps.audit(env, client, { public: true, noProfile, aiQuery: search || null }));
+  const run = await deps.saveRun(env, clientId, await deps.audit(env, client, { public: true, noProfile, aiQuery: search || null, lang: en ? "en" : "fr" }));
   await D.prepare("UPDATE leads SET status='done', client_id=?, run_id=?, total=? WHERE id=?")
     .bind(clientId, run.id, run.score.total, leadId).run();
 

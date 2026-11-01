@@ -31,11 +31,22 @@ export async function pagespeed(url, key) {
   }
 }
 
-async function placesSearch(textQuery, key, location, pageSize = 20) {
+// Country of a business: from its Google address ("…, Royaume-Uni" / "…, UK"), else its website domain.
+// Decides the search language and region, the AI questions and the legal checks. France unless clearly UK.
+export function countryOf(place, site) {
+  const a = (place?.address || "").trim();
+  if (/(royaume-uni|united kingdom|\buk)$/i.test(a)) return "GB";
+  if (/france$/i.test(a)) return "FR";
+  if (/\.uk$/i.test(hostOf(site || "") || hostOf(place?.website || ""))) return "GB";
+  return "FR";
+}
+const langOf = (country) => (country === "GB" ? "en" : "fr");
+
+async function placesSearch(textQuery, key, location, pageSize = 20, country = "FR") {
   if (!key) return { error: "Google API key not set" };
   // Include businesses that hide their address and serve an area (home-based trades, consultants…),
   // which Google leaves out by default.
-  const body = { textQuery, languageCode: "fr", regionCode: "FR", pageSize, includePureServiceAreaBusinesses: true };
+  const body = { textQuery, languageCode: langOf(country), regionCode: country, pageSize, includePureServiceAreaBusinesses: true };
   if (location) body.locationBias = { circle: { center: location, radius: 8000 } };
   try {
     const r = await fetch(PLACES, {
@@ -118,12 +129,12 @@ export async function findCandidates(name, city, key, site) {
 }
 
 // Load a known place by id (fresh rating/reviews each month).
-export async function placeById(id, key) {
+export async function placeById(id, key, country = "FR") {
   if (!key) return { error: "Google API key not set" };
   try {
     const r = await fetch(`https://places.googleapis.com/v1/places/${id}`, {
       headers: { "X-Goog-Api-Key": key, "X-Goog-FieldMask": FIELDS.replaceAll("places.", ""),
-        "Accept-Language": "fr" },
+        "Accept-Language": langOf(country) },
       signal: AbortSignal.timeout(30000),
     });
     const j = await r.json();
@@ -135,8 +146,8 @@ export async function placeById(id, key) {
 }
 
 // Position in Google's local results for a non-branded search, plus top competitors.
-export async function mapRank(placeId, query, key, location) {
-  const res = await placesSearch(query, key, location, 20);
+export async function mapRank(placeId, query, key, location, country = "FR") {
+  const res = await placesSearch(query, key, location, 20, country);
   if (res.error) return res;
   const ids = res.places.map((p) => p.id);
   const pos = ids.indexOf(placeId);
