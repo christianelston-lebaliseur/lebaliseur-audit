@@ -97,6 +97,9 @@ if (new URLSearchParams(location.search).has("embed")) document.body.classList.a
 document.documentElement.lang = en ? "en" : "fr";
 document.querySelectorAll("[data-fr]").forEach((e) => e.textContent = e.dataset[en ? "en" : "fr"]);
 document.querySelectorAll("[data-ph-fr]").forEach((e) => e.placeholder = e.dataset[en ? "phEn" : "phFr"]);
+// Pré-remplissage depuis le bandeau de la page d'accueil (?business=…&city=…&category=…)
+{ const qp = new URLSearchParams(location.search);
+  ["business", "city", "category"].forEach((k) => { const v = (qp.get(k) || "").trim().slice(0, 120); if (v) document.getElementById(k).value = v; }); }
 if (en) document.title = "Visibility check · Le Baliseur";
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
