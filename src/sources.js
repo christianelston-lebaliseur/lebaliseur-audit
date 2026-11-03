@@ -133,6 +133,13 @@ export async function findCandidates(name, city, key, site) {
   return { candidates: list.slice(0, 4), best: best >= 0 ? 0 : -1 };
 }
 
+// Research mode: list businesses for a search such as "restaurant Annecy" (up to 20, Google's order).
+export async function searchBusinesses(query, key, country = "FR") {
+  const res = await placesSearch(query, key, null, 20, country);
+  if (res.error) return res;
+  return { places: res.places.map(summarisePlace).filter((p) => p.status !== "CLOSED_PERMANENTLY") };
+}
+
 // Load a known place by id (fresh rating/reviews each month).
 export async function placeById(id, key, country = "FR") {
   if (!key) return { error: "Google API key not set" };
