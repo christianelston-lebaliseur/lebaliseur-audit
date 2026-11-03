@@ -181,6 +181,7 @@ async function show(id, autorun) {
     return;
   }
   const sc = L.score;
+  h += (L.warning ? '<div class="card" style="border-color:var(--red)"><strong class="down">Partial result.</strong> ' + esc(L.warning) + '</div>' : "");
   h += '<div class="grid hero"><div class="card gauge">' + gauge(sc.total) + '<div class="small muted">Audited ' + fmtDate(L.date) +
     (sc.coverage < 100 ? '<br>' + sc.coverage + '% of checks could run' : "") + '</div></div><div class="card"><h2>By area</h2>' +
     Object.entries(S).map(([k, name]) => {
@@ -372,13 +373,13 @@ function rsTable() {
     '<button onclick="rsCsv()">Export CSV</button>' + (rsState.batch ? '<button onclick="rsClear()">Delete this search</button>' : "") + '</div>';
   h += '<div class="tablewrap" style="margin-top:10px"><table class="rs"><thead><tr><th>Score</th><th>Business</th>' + Object.keys(SHORT).filter((k) => k !== "aivis").map((k) => '<th>' + SHORT[k] + '</th>').join("") +
     '<th>Biggest gaps</th><th>Contact</th><th></th></tr></thead><tbody>' + rows.map((r) => '<tr class="clientrow" onclick="location.hash=\'#/r/' + r.id + '\'"><td><span class="badge" style="background:' + col(r.total) + '">' + r.total + '</span></td>' +
-    '<td><strong>' + esc(r.name) + '</strong><div class="small muted">' + (r.site ? '<a href="' + esc(r.site) + '" target="_blank" rel="noopener" onclick="event.stopPropagation()">' + esc(r.site.replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, "")) + '</a>' : '<span class="down">no website</span>') +
+    '<td><strong>' + esc(r.name) + '</strong>' + (r.warn === "unreadable" ? ' <span class="gain down" title="The site answered but couldn\'t be read, so its pages weren\'t checked">SITE NOT READ · PARTIAL SCORE</span>' : r.warn === "unreachable" ? ' <span class="gain down">SITE DOWN</span>' : "") + '<div class="small muted">' + (r.site ? '<a href="' + esc(r.site) + '" target="_blank" rel="noopener" onclick="event.stopPropagation()">' + esc(r.site.replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, "")) + '</a>' : '<span class="down">no website</span>') +
     ' · ' + (r.rating != null ? r.rating + '★ (' + r.reviews + ')' : 'no reviews') + (r.client_id ? ' · <span class="gain">PROSPECT</span>' : "") + '</div></td>' +
     Object.keys(SHORT).filter((k) => k !== "aivis").map((k) => { const v = r.sections[k]?.pct; return '<td><span class="mini" style="background:' + col(v) + '">' + (v ?? "–") + '</span></td>'; }).join("") +
     '<td class="small">' + r.top.map((t) => esc(t.label)).join("<br>") + '</td><td class="small">' + (r.phone ? '<a href="tel:' + esc(r.phone) + '" onclick="event.stopPropagation()">' + esc(r.phone) + '</a><br>' : "") +
     (r.maps_url ? '<a href="' + esc(r.maps_url) + '" target="_blank" rel="noopener" onclick="event.stopPropagation()">Maps</a>' : "") + '</td>' +
     '<td class="noprint"><button title="Remove" onclick="event.stopPropagation();rsDel(' + r.id + ')">✕</button></td></tr>').join("") + '</tbody></table></div>' +
-    '<p class="muted small">Sorted lowest score first. AI-assistant results only count when that box was ticked, so scores without it are over the other five areas.</p>';
+    '<p class="muted small">Sorted lowest score first. “Site not read” means the score only covers the Google profile and speed: check that site yourself before using it. AI-assistant results only count when that box was ticked.</p>';
   $("#rs-results").innerHTML = h;
 }
 async function rsDel(id) { await api("/api/research/" + id, {method: "DELETE"}); rsRows = rsRows.filter((r) => r.id !== id); rsTable(); }
@@ -407,6 +408,7 @@ async function researchShow(id) {
     '<div class="card"><h2 style="font-size:22px;margin:0">' + esc(r.name) + ' <span class="gain">RESEARCH</span></h2><div class="muted">' + esc([r.category, r.city].filter(Boolean).join(" · ")) +
     (L.site ? ' · <a href="' + esc(L.site) + '" target="_blank" rel="noopener">' + esc(L.site.replace(/^https?:\/\//, "")) + '</a>' : ' · no website') +
     (r.maps_url ? ' · <a href="' + esc(r.maps_url) + '" target="_blank" rel="noopener">Google Maps</a>' : "") + (r.phone ? ' · <a href="tel:' + esc(r.phone) + '">' + esc(r.phone) + '</a>' : "") + '</div></div>';
+  h += (L.warning ? '<div class="card" style="border-color:var(--red)"><strong class="down">Partial result.</strong> ' + esc(L.warning) + '</div>' : "");
   h += '<div class="grid hero"><div class="card gauge">' + gauge(sc.total) + '<div class="small muted">Checked ' + fmtDate(L.date) + (sc.coverage < 100 ? '<br>' + sc.coverage + '% of checks could run' : "") + '</div></div><div class="card"><h2>By area</h2>' +
     Object.entries(S).map(([k, name]) => { const s = sc.sections[k] || {pct: null};
       return '<div class="row"><span>' + name + '</span><strong>' + (s.pct == null ? "not checked" : s.pct + "%") + '</strong></div><div class="bar"><i style="width:' + (s.pct || 0) + '%;background:' + col(s.pct) + '"></i></div>'; }).join("") + '</div></div>';

@@ -2,6 +2,7 @@
 // records SEO facts per page, using the built-in streaming HTMLRewriter.
 
 const UA = "Mozilla/5.0 (compatible; LeBaliseurAudit/1.0; +https://lebaliseur.fr)";
+const BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0 Safari/537.36";
 const SKIP_EXT = /\.(pdf|jpe?g|png|gif|webp|svg|zip|mp4|mp3|docx?|xlsx?|ico|css|js|xml|txt)$/i;
 const PHONE_RE = /(?:\+33\s?|\b0)[1-9](?:[\s.-]?\d{2}){4}/g;
 // UK numbers: 020 7946 0958, 01424 123456, 07700 900123, +44 (0)1424 123456.
@@ -237,6 +238,29 @@ export async function crawl(startUrl, city = "", maxPages = 25, street = "") {
       }
     }
   }
+  // The homepage answered but couldn't be read (an error page, a refusal of automated visitors, a body
+  // that failed half-way). Try once more, a moment later and as an ordinary browser, before giving up.
+  const readable = () => out.pages.some((p) => p.status === 200 && "title" in p);
+  if (!readable() && maxPages > 0) {
+    const first = out.pages.find((p) => p.url === home.r.url);
+    s.home_error = first ? (first.error || `HTTP ${first.status}`) : `HTTP ${home.r.status}`;
+    await new Promise((res) => setTimeout(res, 1500));
+    const again = await get(start.toString(), { headers: { "User-Agent": BROWSER_UA + " LeBaliseurAudit/1.0",
+      "Accept": "text/html,application/xhtml+xml", "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.8" } });
+    if (again.r && again.r.status < 400 && (again.r.headers.get("content-type") || "").includes("text/html")) {
+      try {
+        const page = await parsePage(again.r, city, street);
+        if ("title" in page) {
+          out.pages = out.pages.filter((p) => p !== first);
+          out.pages.unshift(page);
+          s.home_retried = true;
+          for (const link of page.internal_links) seen.add(link);
+        }
+      } catch { /* still unreadable */ }
+    }
+  }
+  s.readable = readable();
+  if (s.readable) delete s.home_error;
   s.pages_found = seen.size;
   s.internal_urls = [...seen].slice(0, 500);
   for (const [name, sig] of [["Wix", "wix"], ["Jimdo", "jimdo"], ["WordPress", "wordpress"],
