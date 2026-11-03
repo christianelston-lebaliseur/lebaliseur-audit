@@ -26,6 +26,9 @@ export function streetOf(address) {
 }
 const postcodeOf = (address) => ((address || "").match(/\b\d{5}\b/) || [])[0] || "";
 
+// Checks that don't need the site's pages (they use Google, robots.txt or llms.txt).
+const PAGE_FREE = new Set(["https", "speed", "ai_bots", "llms"]);
+
 export function runChecks(ctx) {
   const { crawl, pagespeed: psi = {}, google = {}, rank = {} } = ctx;
   const site = crawl.site || {};
@@ -53,7 +56,16 @@ export function runChecks(ctx) {
 
   const add = (id, section, label, points, fn, fix, effort) => {
     let fraction = null, detail = "";
-    if (!["local", "aivis"].includes(section) && !site.reachable) detail = "website unreachable";
+    // No website at all (or only a social profile): a real gap, so website checks score 0 rather than
+    // being left out — otherwise a business with no site would outscore one with a weak site.
+    if (site.none && (id === "nap" || !["local", "aivis"].includes(section))) {
+      fraction = 0; detail = site.social ? "no website (only a social profile)" : "no website";
+    }
+    else if (!["local", "aivis"].includes(section) && !site.reachable) detail = "website unreachable";
+    // Site answered but no page could be read: checks that need its pages are left out of the score
+    // rather than counted as failures (a well-built site must never score 0 because it refused us).
+    else if (site.readable === false && (id === "nap" || (!["local", "aivis"].includes(section) && !PAGE_FREE.has(id))))
+      detail = "not checked: the website couldn't be read";
     else {
       try { [fraction, detail] = fn(); } catch (e) { detail = `could not check (${e.message})`; }
     }
@@ -142,6 +154,8 @@ export function runChecks(ctx) {
     () => {
       if (!gbp) return noGbp();
       const phone = !!gbp.phone && sitePhones.has(last9(gbp.phone));
+      // Service-area businesses hide their address on Google: then only the phone can match.
+      if (!gbp.address) return [phone ? 1 : 0, `phone ${gbp.phone || "none on Google"} ${phone ? "found" : "not found"} on site (no address shown on Google)`];
       const pc = postcodeOf(gbp.address), st = streetOf(gbp.address);
       const addr = ok.some((p) => p.has_street) || (!st && ok.some((p) => p.postcodes.includes(pc)));
       return [0.5 * phone + 0.5 * addr,

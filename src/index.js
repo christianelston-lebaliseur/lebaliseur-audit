@@ -45,6 +45,8 @@ async function db(env) {
     // Feedback left on the public result: 1 useful, 0 not useful, plus an optional comment.
     try { await env.DB.prepare("ALTER TABLE leads ADD COLUMN fb_useful INTEGER").run(); } catch { /* exists */ }
     try { await env.DB.prepare("ALTER TABLE leads ADD COLUMN fb_comment TEXT").run(); } catch { /* exists */ }
+    // Research rows: a warning when the site couldn't be read, so a partial score isn't mistaken for a low one.
+    try { await env.DB.prepare("ALTER TABLE research ADD COLUMN warn TEXT").run(); } catch { /* exists */ }
     ready = true;
   }
   return env.DB;
@@ -88,6 +90,8 @@ function aiContext(client, place, site, rank) {
     city: client.city || "", category: client.category || place?.category || "", competitors: rank?.competitors || [] };
 }
 
+const SOCIAL = /(^|\.)(instagram\.com|facebook\.com|fb\.com|fb\.me|linktr\.ee|tiktok\.com|linkedin\.com|x\.com|twitter\.com|youtube\.com|wa\.me)$/i;
+
 export async function audit(env, client, opts = {}) {
   const key = env.GOOGLE_API_KEY;
   const google = opts.noProfile ? { error: "No Google profile (confirmed by the business)", notFound: true }
@@ -100,14 +104,18 @@ export async function audit(env, client, opts = {}) {
     if (en.place) google.place = en.place;
   }
   const place = google.place;
-  const site = normSite(client.site) || normSite(place?.website);
+  const rawSite = normSite(client.site) || normSite(place?.website);
+  // A social profile or link page isn't a website: score it as "no website" instead of crawling a login wall.
+  const social = rawSite && SOCIAL.test(new URL(rawSite).hostname);
+  const site = social ? "" : rawSite;
   const query = client.query || [client.category, client.city].filter(Boolean).join(" ");
   const ap = aiPlan(env, client, place, opts, country);
   const [crawlRes, psi, rank, aiRaw] = await Promise.all([
     site ? // Pages read per audit. Kept low for the free Cloudflare plan (10 ms of processing per request);
     // on Workers Paid set the CRAWL_PAGES variable to 25 for fuller reports.
     crawl(site, client.city, opts.maxPages || Math.min(+env.CRAWL_PAGES || 10, opts.public ? 12 : 25), streetOf(place?.address))
-      : { site: { reachable: false }, pages: [], errors: ["No website known"] },
+      : { site: { reachable: false, none: true, social: social ? rawSite : null }, pages: [],
+          errors: [social ? "Only a social profile, no website" : "No website known"] },
     site ? pagespeed(site, key) : { error: "no website" },
     place && query ? mapRank(place.id, query, key, place.location, country) : { error: place ? "no search set" : "no profile" },
     ap.skip ? { error: ap.skip } : askAi(env, ap.prompts, client.city, { only: ap.only, country }),
@@ -119,8 +127,13 @@ export async function audit(env, client, opts = {}) {
   const sc = score(results);
   const pages = crawlRes.pages.map((p) => ({ url: p.url, status: p.status, title: p.title, words: p.words,
     h1: p.h1, meta: !!p.meta_description, schema: p.schema_types, noindex: p.noindex }));
+  const sf = crawlRes.site || {};
+  const warning = !site ? null
+    : sf.reachable === false ? "The website didn't respond, so only the Google profile was scored."
+    : sf.readable === false ? "The website answered but couldn't be read (" + (sf.home_error || "refused") + "), so its pages weren't checked. The score covers the Google profile and speed only."
+    : null;
   return {
-    date: new Date().toISOString(), site, query, country, score: sc, results, plan: plan(results),
+    date: new Date().toISOString(), site, social_profile: social ? rawSite : null, query, country, score: sc, results, plan: plan(results), warning,
     google: place || null, google_error: google.error || null, rank, pagespeed: psi,
     site_facts: crawlRes.site, crawl_errors: crawlRes.errors, pages, ai,
   };
@@ -202,15 +215,15 @@ async function api(req, env, url) {
     const top = [...run.plan.now, ...run.plan.month, ...run.plan.quarter].sort((x, y) => y.gain - x.gain).slice(0, 3)
       .map((x) => ({ label: x.label, gain: x.gain }));
     const r = await D.prepare(`INSERT INTO research (date, batch, name, city, category, site, place_id, phone, maps_url, address,
-      rating, reviews, total, coverage, sections, top, data) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+      rating, reviews, total, coverage, sections, top, data, warn) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
       .bind(run.date, (b.batch || "").trim() || null, g.name || client.name, client.city, client.category || g.category || "",
         run.site || null, g.id || null, g.phone || null, g.maps_url || null, g.address || null, g.rating ?? null, g.reviews ?? null,
-        run.score.total, run.score.coverage, JSON.stringify(run.score.sections), JSON.stringify(top), JSON.stringify(run)).run();
+        run.score.total, run.score.coverage, JSON.stringify(run.score.sections), JSON.stringify(top), JSON.stringify(run), run.warning ? (run.site_facts?.reachable === false ? "unreachable" : "unreadable") : null).run();
     return json({ id: r.meta.last_row_id, name: g.name || client.name, total: run.score.total });
   }
   if (path === "/api/research" && m === "GET") {
     const { results } = await D.prepare(`SELECT id, date, batch, name, city, category, site, place_id, phone, maps_url, address,
-      rating, reviews, total, coverage, sections, top, client_id FROM research ORDER BY date DESC LIMIT 1000`).all();
+      rating, reviews, total, coverage, sections, top, client_id, warn FROM research ORDER BY date DESC LIMIT 1000`).all();
     return json(results.map((x) => ({ ...x, sections: JSON.parse(x.sections || "{}"), top: JSON.parse(x.top || "[]") })));
   }
   if (path === "/api/research" && m === "DELETE") {
