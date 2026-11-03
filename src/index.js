@@ -2,7 +2,7 @@
 // Enter a business name; it finds it on Google, crawls the site, scores it,
 // stores the result and re-audits every client monthly.
 import { crawl, normHost, normSite } from "./crawl.js";
-import { pagespeed, findBusiness, findCandidates, placeById, mapRank, countryOf } from "./sources.js";
+import { pagespeed, findBusiness, findCandidates, placeById, mapRank, countryOf, searchBusinesses } from "./sources.js";
 import { runChecks, score, plan, compare, streetOf, SECTIONS } from "./checks.js";
 import APP_HTML from "./app.html";
 import LOGIN_HTML from "./login.html";
@@ -24,6 +24,13 @@ const SCHEMA = [
     status TEXT, client_id INTEGER, run_id INTEGER, total INTEGER)`,
   `CREATE INDEX IF NOT EXISTS leads_date ON leads(date)`,
   `CREATE TABLE IF NOT EXISTS lookups (ip_hash TEXT, date TEXT)`,
+  // Research mode: businesses audited to find low scorers. Kept apart from clients and leads,
+  // never emailed, never re-audited automatically.
+  `CREATE TABLE IF NOT EXISTS research (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT NOT NULL, batch TEXT, name TEXT, city TEXT, category TEXT,
+    site TEXT, place_id TEXT, phone TEXT, maps_url TEXT, address TEXT, rating REAL, reviews INTEGER,
+    total INTEGER, coverage INTEGER, sections TEXT, top TEXT, data TEXT, client_id INTEGER)`,
+  `CREATE INDEX IF NOT EXISTS research_batch ON research(batch, total)`,
 ];
 let ready = false;
 async function db(env) {
@@ -66,6 +73,7 @@ async function authed(req, env) {
 // opts.public: the public check asks fewer questions of cheaper engines (AI_PUBLIC_ENGINES).
 function aiPlan(env, client, place, opts = {}, country = "FR") {
   if (opts.public && env.AI_PUBLIC === "off") return { prompts: [], skip: "AI check off for the public check" };
+  if (opts.noAi) return { prompts: [], skip: "AI check not run (research mode)" };
   const ask = country === "GB" || opts.lang === "en"
     ? `Who would you recommend for "${opts.aiQuery}"? Give me a few names.`
     : `Qui me recommandes-tu pour « ${opts.aiQuery} » ? Donne-moi quelques noms.`;
@@ -98,7 +106,7 @@ export async function audit(env, client, opts = {}) {
   const [crawlRes, psi, rank, aiRaw] = await Promise.all([
     site ? // Pages read per audit. Kept low for the free Cloudflare plan (10 ms of processing per request);
     // on Workers Paid set the CRAWL_PAGES variable to 25 for fuller reports.
-    crawl(site, client.city, Math.min(+env.CRAWL_PAGES || 10, opts.public ? 12 : 25), streetOf(place?.address))
+    crawl(site, client.city, opts.maxPages || Math.min(+env.CRAWL_PAGES || 10, opts.public ? 12 : 25), streetOf(place?.address))
       : { site: { reachable: false }, pages: [], errors: ["No website known"] },
     site ? pagespeed(site, key) : { error: "no website" },
     place && query ? mapRank(place.id, query, key, place.location, country) : { error: place ? "no search set" : "no profile" },
@@ -166,6 +174,72 @@ async function api(req, env, url) {
   if ((mm = path.match(/^\/api\/clients\/(\d+)\/convert$/)) && m === "POST") {
     await D.prepare("UPDATE clients SET prospect=0 WHERE id=?").bind(+mm[1]).run();
     return json({ ok: true });
+  }
+  // ---- Research mode: audit any business, see the score, nothing emailed, not a client ----
+  if (path === "/api/research/find" && m === "POST") {
+    const b = await req.json();
+    const q = [b.activity, b.city].map((x) => (x || "").trim()).filter(Boolean).join(" ");
+    if (!q) return json({ error: "Type an activity and a town" }, 400);
+    const r = await searchBusinesses(q, env.GOOGLE_API_KEY, b.country === "GB" ? "GB" : "FR");
+    if (r.error) return json({ error: r.error }, 502);
+    // Flag businesses already researched in the last 30 days, so they aren't paid for twice.
+    const ids = r.places.map((p) => p.id);
+    const seen = {};
+    if (ids.length) {
+      const { results } = await D.prepare(`SELECT place_id, id, total FROM research WHERE place_id IN (${ids.map(() => "?").join(",")})
+        AND date > datetime('now','-30 days') ORDER BY date`).bind(...ids).all();
+      for (const x of results) seen[x.place_id] = { id: x.id, total: x.total };
+    }
+    return json({ query: q, places: r.places.map((p) => ({ ...p, seen: seen[p.id] || null })) });
+  }
+  if (path === "/api/research/audit" && m === "POST") {
+    const b = await req.json();
+    if (!b.name?.trim() && !b.place_id) return json({ error: "Name is required" }, 400);
+    const client = { name: (b.name || "").trim(), city: (b.city || "").trim(), category: (b.category || "").trim(),
+      site: (b.site || "").trim(), place_id: b.place_id || null, query: "" };
+    const run = await audit(env, client, { noAi: !b.ai, maxPages: 8 });
+    const g = run.google || {};
+    const top = [...run.plan.now, ...run.plan.month, ...run.plan.quarter].sort((x, y) => y.gain - x.gain).slice(0, 3)
+      .map((x) => ({ label: x.label, gain: x.gain }));
+    const r = await D.prepare(`INSERT INTO research (date, batch, name, city, category, site, place_id, phone, maps_url, address,
+      rating, reviews, total, coverage, sections, top, data) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+      .bind(run.date, (b.batch || "").trim() || null, g.name || client.name, client.city, client.category || g.category || "",
+        run.site || null, g.id || null, g.phone || null, g.maps_url || null, g.address || null, g.rating ?? null, g.reviews ?? null,
+        run.score.total, run.score.coverage, JSON.stringify(run.score.sections), JSON.stringify(top), JSON.stringify(run)).run();
+    return json({ id: r.meta.last_row_id, name: g.name || client.name, total: run.score.total });
+  }
+  if (path === "/api/research" && m === "GET") {
+    const { results } = await D.prepare(`SELECT id, date, batch, name, city, category, site, place_id, phone, maps_url, address,
+      rating, reviews, total, coverage, sections, top, client_id FROM research ORDER BY date DESC LIMIT 1000`).all();
+    return json(results.map((x) => ({ ...x, sections: JSON.parse(x.sections || "{}"), top: JSON.parse(x.top || "[]") })));
+  }
+  if (path === "/api/research" && m === "DELETE") {
+    const batch = url.searchParams.get("batch");
+    if (batch === null) return json({ error: "batch required" }, 400);
+    await D.prepare("DELETE FROM research WHERE COALESCE(batch,'')=?").bind(batch).run();
+    return json({ ok: true });
+  }
+  if ((mm = path.match(/^\/api\/research\/(\d+)$/))) {
+    if (m === "GET") {
+      const r = await D.prepare("SELECT * FROM research WHERE id=?").bind(+mm[1]).first();
+      return r ? json({ row: { ...r, data: undefined }, run: JSON.parse(r.data), sectionNames: SECTIONS }) : json({ error: "not found" }, 404);
+    }
+    if (m === "DELETE") {
+      await D.prepare("DELETE FROM research WHERE id=?").bind(+mm[1]).run();
+      return json({ ok: true });
+    }
+  }
+  // Move a researched business into the private app as a prospect (full report, no re-audit).
+  if ((mm = path.match(/^\/api\/research\/(\d+)\/prospect$/)) && m === "POST") {
+    const r = await D.prepare("SELECT * FROM research WHERE id=?").bind(+mm[1]).first();
+    if (!r) return json({ error: "not found" }, 404);
+    if (r.client_id) return json({ id: r.client_id });
+    const c = await D.prepare("INSERT INTO clients (name, city, category, site, query, place_id, notes, prospect) VALUES (?,?,?,?,?,?,?,1)")
+      .bind(r.name, r.city || "", r.category || "", r.site || "", "", r.place_id, "From research" + (r.batch ? ": " + r.batch : "")).run();
+    const cid = c.meta.last_row_id;
+    await saveRun(env, cid, JSON.parse(r.data));
+    await D.prepare("UPDATE research SET client_id=? WHERE id=?").bind(cid, r.id).run();
+    return json({ id: cid });
   }
   if (path === "/api/lookup" && m === "POST") {
     const b = await req.json();

@@ -45,10 +45,16 @@ input,textarea{width:100%;font:inherit;padding:10px;border-radius:9px;border:1px
 .chg li{margin-bottom:6px}
 .chips{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}.chip{background:var(--soft);border-radius:9px;padding:6px 10px;font-size:13px}
 details{border-top:1px solid var(--line);padding:8px 0}summary{cursor:pointer;font-size:13px;font-weight:600}
+.rs th,.rs td{padding:7px 5px}.mini{display:inline-block;min-width:30px;text-align:center;border-radius:6px;font-size:12px;font-weight:700;color:#fff;padding:1px 4px}
+.pick{max-height:360px;overflow:auto;border:1px solid var(--line);border-radius:10px;margin-top:10px}
+.pick label{display:flex;gap:10px;align-items:flex-start;font-weight:400;margin:0;padding:8px 10px;border-bottom:1px solid var(--line);cursor:pointer}
+.pick input{width:auto;margin-top:4px}.toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.toolbar select,.toolbar input{width:auto;padding:8px}
 .answer{font-size:13px;white-space:pre-wrap;margin:8px 0;max-height:320px;overflow:auto;background:var(--soft);border-radius:9px;padding:10px}
 @media print{header,.noprint{display:none!important}body{background:#fff;color:#000}.card{break-inside:avoid;border-color:#ccc}main{padding:0}}
 </style></head><body>
 <header><h1 onclick="location.hash=''"><span class="post"></span>Le Baliseur Audit</h1>
+<a class="btn noprint" href="#/research">Research</a>
 <button class="primary noprint" onclick="openAdd()">+ Client</button>
 <a class="btn noprint" href="/logout">Sign out</a></header>
 <main id="main"></main>
@@ -269,9 +275,162 @@ async function del(id) {
   await api("/api/clients/" + id, {method: "DELETE"}); location.hash = "";
 }
 
+// ---------- Research mode ----------
+// Audit any business to find low scorers. Nothing is emailed, nothing becomes a client
+// unless you click "Track as prospect", and these are never re-audited automatically.
+const SHORT = {tech: "Tech", onpage: "SEO", local: "Google", aeo: "AI-ready", trust: "Trust", aivis: "AI named"};
+let rsFound = [], rsRows = [], rsBusy = false;
+const rsState = (() => { try { return JSON.parse(localStorage.getItem("rs") || "{}"); } catch { return {}; } })();
+const rsSave = () => { try { localStorage.setItem("rs", JSON.stringify(rsState)); } catch {} };
+
+async function research() {
+  $("#main").innerHTML = '<div class="row noprint" style="margin-bottom:12px"><a href="#" class="btn">← All clients</a></div>' +
+    '<div class="card"><h2>Research: find businesses with low scores</h2><p class="muted small">Audits any business and shows the result here. Nothing is emailed, nobody is added as a lead or client, and nothing is re-audited later.</p>' +
+    '<div class="grid g2"><div><label>Activity</label><input id="rs-act" placeholder="e.g. plombier, restaurant, kiné" value="' + esc(rsState.act || "") + '"></div>' +
+    '<div><label>Town</label><input id="rs-city" value="' + esc(rsState.city || "Annecy") + '"></div></div>' +
+    '<div class="actions" style="justify-content:flex-start"><button class="primary" id="rs-find" onclick="rsFind()">Find on Google</button></div>' +
+    '<details><summary>Or paste businesses, one per line</summary><p class="muted small">Name, then optionally a comma and the website. Uses the town above.</p>' +
+    '<textarea id="rs-paste" rows="4" placeholder="Boulangerie Dupont&#10;Garage Martin, garage-martin.fr"></textarea>' +
+    '<div class="actions" style="justify-content:flex-start"><button onclick="rsFromPaste()">Use this list</button></div></details>' +
+    '<div id="rs-pick"></div></div><div class="card" id="rs-results"><p class="muted"><span class="spin"></span>Loading…</p></div>';
+  rsRows = await api("/api/research");
+  rsTable();
+}
+
+async function rsFind() {
+  const act = $("#rs-act").value.trim(), city = $("#rs-city").value.trim();
+  if (!act) return $("#rs-act").focus();
+  rsState.act = act; rsState.city = city; rsSave();
+  const b = $("#rs-find"); b.disabled = true; b.innerHTML = '<span class="spin"></span>Searching';
+  try {
+    const r = await api("/api/research/find", {method: "POST", body: JSON.stringify({activity: act, city})});
+    rsFound = r.places.map((p) => ({name: p.name, place_id: p.id, site: p.website || "", city, category: act, batch: r.query,
+      info: (p.rating != null ? p.rating + "★ (" + p.reviews + ")" : "no reviews") + " · " + (p.website ? p.website.replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, "") : "no website"),
+      address: p.address, seen: p.seen}));
+    rsPick();
+  } catch (e) { $("#rs-pick").innerHTML = '<div class="found">' + esc(e.message) + '</div>'; }
+  b.disabled = false; b.textContent = "Find on Google";
+}
+function rsFromPaste() {
+  const city = $("#rs-city").value.trim(), act = $("#rs-act").value.trim();
+  const batch = "List " + new Date().toLocaleDateString("en-GB", {day: "numeric", month: "short"}) + (city ? " · " + city : "");
+  rsFound = $("#rs-paste").value.split("\n").map((l) => l.trim()).filter(Boolean).slice(0, 40).map((l) => {
+    const [name, site] = l.split(/\s*[,;\t]\s*/);
+    return {name, site: site || "", city, category: act, batch, info: site || "website found on Google if listed", seen: null};
+  });
+  rsPick();
+}
+function rsPick() {
+  if (!rsFound.length) { $("#rs-pick").innerHTML = '<div class="found">Nothing found. Try another wording.</div>'; return; }
+  $("#rs-pick").innerHTML = '<div class="pick">' + rsFound.map((p, i) => '<label><input type="checkbox" class="rs-cb" data-i="' + i + '"' + (p.seen ? "" : " checked") + '><span><strong>' + esc(p.name) + '</strong>' +
+    (p.seen ? ' <span class="gain">already checked · ' + p.seen.total + '</span>' : "") + '<div class="small muted">' + esc(p.info) + (p.address ? " · " + esc(p.address) : "") + '</div></span></label>').join("") + '</div>' +
+    '<label style="display:flex;gap:8px;align-items:center;font-weight:400"><input type="checkbox" id="rs-ai" style="width:auto"> Also ask the AI assistants (uses paid API credits, slower)</label>' +
+    '<div class="actions" style="justify-content:flex-start"><button onclick="document.querySelectorAll(\'.rs-cb\').forEach((c)=>c.checked=!c.checked)">Invert selection</button>' +
+    '<button class="primary" id="rs-go" onclick="rsRun()">Audit selected</button><span id="rs-prog" class="small muted"></span></div>';
+}
+
+async function rsRun() {
+  if (rsBusy) return;
+  const todo = [...document.querySelectorAll(".rs-cb:checked")].map((c) => rsFound[+c.dataset.i]);
+  if (!todo.length) return;
+  const ai = $("#rs-ai").checked;
+  rsBusy = true; const b = $("#rs-go"); b.disabled = true;
+  let done = 0, failed = [];
+  const prog = () => { $("#rs-prog").innerHTML = '<span class="spin"></span>' + done + " of " + todo.length + " done · about a minute each, two at a time. Keep this tab open."; };
+  prog();
+  const queue = [...todo];
+  // Two at a time: fast enough, and each audit stays its own request within Cloudflare's limits.
+  const worker = async () => {
+    while (queue.length) {
+      const p = queue.shift();
+      try { await api("/api/research/audit", {method: "POST", body: JSON.stringify({...p, ai})}); }
+      catch (e) { failed.push(p.name + ": " + e.message); }
+      done++; prog();
+    }
+  };
+  await Promise.all([worker(), worker()]);
+  rsBusy = false; b.disabled = false;
+  $("#rs-prog").innerHTML = "Finished " + (todo.length - failed.length) + " of " + todo.length + (failed.length ? '<div class="down">' + failed.map(esc).join("<br>") + "</div>" : "");
+  rsState.batch = todo[0].batch; rsSave();
+  rsRows = await api("/api/research"); rsTable();
+}
+
+function rsVisible() {
+  const batch = rsState.batch ?? "", max = +(rsState.max ?? 100);
+  return rsRows.filter((r) => (!batch || (r.batch || "") === batch) && r.total <= max)
+    .sort((a, b) => a.total - b.total);
+}
+function rsTable() {
+  const batches = [...new Set(rsRows.map((r) => r.batch || ""))];
+  if (rsState.batch && !batches.includes(rsState.batch)) rsState.batch = "";
+  const rows = rsVisible();
+  let h = '<h2>Results (' + rows.length + ')</h2>';
+  if (!rsRows.length) { $("#rs-results").innerHTML = h + '<p class="muted small">Nothing researched yet. Search for an activity and town above.</p>'; return; }
+  h += '<div class="toolbar noprint"><select onchange="rsState.batch=this.value;rsSave();rsTable()"><option value="">All searches</option>' +
+    batches.filter(Boolean).map((b) => '<option' + (b === rsState.batch ? " selected" : "") + ' value="' + esc(b) + '">' + esc(b) + '</option>').join("") + '</select>' +
+    '<label style="margin:0;font-weight:400">Score up to <strong id="rs-maxv">' + (rsState.max ?? 100) + '</strong></label><input type="range" min="0" max="100" step="5" value="' + (rsState.max ?? 100) + '" oninput="$(\'#rs-maxv\').textContent=this.value" onchange="rsState.max=+this.value;rsSave();rsTable()">' +
+    '<button onclick="rsCsv()">Export CSV</button>' + (rsState.batch ? '<button onclick="rsClear()">Delete this search</button>' : "") + '</div>';
+  h += '<div class="tablewrap" style="margin-top:10px"><table class="rs"><thead><tr><th>Score</th><th>Business</th>' + Object.keys(SHORT).filter((k) => k !== "aivis").map((k) => '<th>' + SHORT[k] + '</th>').join("") +
+    '<th>Biggest gaps</th><th>Contact</th><th></th></tr></thead><tbody>' + rows.map((r) => '<tr class="clientrow" onclick="location.hash=\'#/r/' + r.id + '\'"><td><span class="badge" style="background:' + col(r.total) + '">' + r.total + '</span></td>' +
+    '<td><strong>' + esc(r.name) + '</strong><div class="small muted">' + (r.site ? '<a href="' + esc(r.site) + '" target="_blank" rel="noopener" onclick="event.stopPropagation()">' + esc(r.site.replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, "")) + '</a>' : '<span class="down">no website</span>') +
+    ' · ' + (r.rating != null ? r.rating + '★ (' + r.reviews + ')' : 'no reviews') + (r.client_id ? ' · <span class="gain">PROSPECT</span>' : "") + '</div></td>' +
+    Object.keys(SHORT).filter((k) => k !== "aivis").map((k) => { const v = r.sections[k]?.pct; return '<td><span class="mini" style="background:' + col(v) + '">' + (v ?? "–") + '</span></td>'; }).join("") +
+    '<td class="small">' + r.top.map((t) => esc(t.label)).join("<br>") + '</td><td class="small">' + (r.phone ? '<a href="tel:' + esc(r.phone) + '" onclick="event.stopPropagation()">' + esc(r.phone) + '</a><br>' : "") +
+    (r.maps_url ? '<a href="' + esc(r.maps_url) + '" target="_blank" rel="noopener" onclick="event.stopPropagation()">Maps</a>' : "") + '</td>' +
+    '<td class="noprint"><button title="Remove" onclick="event.stopPropagation();rsDel(' + r.id + ')">✕</button></td></tr>').join("") + '</tbody></table></div>' +
+    '<p class="muted small">Sorted lowest score first. AI-assistant results only count when that box was ticked, so scores without it are over the other five areas.</p>';
+  $("#rs-results").innerHTML = h;
+}
+async function rsDel(id) { await api("/api/research/" + id, {method: "DELETE"}); rsRows = rsRows.filter((r) => r.id !== id); rsTable(); }
+async function rsClear() {
+  if (!confirm("Delete every result in “" + rsState.batch + "”?")) return;
+  await api("/api/research?batch=" + encodeURIComponent(rsState.batch), {method: "DELETE"});
+  rsRows = rsRows.filter((r) => (r.batch || "") !== rsState.batch); rsState.batch = ""; rsSave(); rsTable();
+}
+function rsCsv() {
+  const keys = Object.keys(SHORT).filter((k) => k !== "aivis");
+  const head = ["Score", "Business", "Activity", "Town", "Website", "Phone", "Address", "Rating", "Reviews", ...keys.map((k) => SHORT[k]), "Gap 1", "Gap 2", "Gap 3", "Google Maps", "Search", "Date"];
+  const q = (v) => '"' + String(v ?? "").replace(/"/g, '""') + '"';
+  const lines = rsVisible().map((r) => [r.total, r.name, r.category, r.city, r.site, r.phone, r.address, r.rating, r.reviews, ...keys.map((k) => r.sections[k]?.pct),
+    r.top[0]?.label, r.top[1]?.label, r.top[2]?.label, r.maps_url, r.batch, r.date.slice(0, 10)].map(q).join(";"));
+  const blob = new Blob(["﻿" + [head.map(q).join(";"), ...lines].join("\r\n")], {type: "text/csv;charset=utf-8"});
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
+  a.download = "research-" + (rsState.batch || "all").replace(/[^\w-]+/g, "-") + ".csv"; a.click();
+}
+
+async function researchShow(id) {
+  $("#main").innerHTML = '<p class="muted"><span class="spin"></span>Loading…</p>';
+  const d = await api("/api/research/" + id);
+  const r = d.row, L = d.run, S = d.sectionNames, sc = L.score;
+  let h = '<div class="row noprint" style="margin-bottom:12px;flex-wrap:wrap"><a href="#/research" class="btn">← Research</a><span style="display:flex;gap:8px;flex-wrap:wrap">' +
+    '<button onclick="window.print()">Print / PDF</button>' + (r.client_id ? '<a class="btn" href="#/c/' + r.client_id + '">Open prospect</a>' : '<button class="primary" onclick="rsProspect(' + id + ', this)">Track as prospect</button>') + '</span></div>' +
+    '<div class="card"><h2 style="font-size:22px;margin:0">' + esc(r.name) + ' <span class="gain">RESEARCH</span></h2><div class="muted">' + esc([r.category, r.city].filter(Boolean).join(" · ")) +
+    (L.site ? ' · <a href="' + esc(L.site) + '" target="_blank" rel="noopener">' + esc(L.site.replace(/^https?:\/\//, "")) + '</a>' : ' · no website') +
+    (r.maps_url ? ' · <a href="' + esc(r.maps_url) + '" target="_blank" rel="noopener">Google Maps</a>' : "") + (r.phone ? ' · <a href="tel:' + esc(r.phone) + '">' + esc(r.phone) + '</a>' : "") + '</div></div>';
+  h += '<div class="grid hero"><div class="card gauge">' + gauge(sc.total) + '<div class="small muted">Checked ' + fmtDate(L.date) + (sc.coverage < 100 ? '<br>' + sc.coverage + '% of checks could run' : "") + '</div></div><div class="card"><h2>By area</h2>' +
+    Object.entries(S).map(([k, name]) => { const s = sc.sections[k] || {pct: null};
+      return '<div class="row"><span>' + name + '</span><strong>' + (s.pct == null ? "not checked" : s.pct + "%") + '</strong></div><div class="bar"><i style="width:' + (s.pct || 0) + '%;background:' + col(s.pct) + '"></i></div>'; }).join("") + '</div></div>';
+  const P = L.plan, pl = (arr) => arr.length ? '<ul>' + arr.map((x) => '<li><strong>' + esc(x.label) + '</strong><span class="gain">+' + x.gain + '</span><div class="small">' + esc(x.fix) + '</div><div class="small muted">Now: ' + esc(x.detail) + '</div></li>').join("") + '</ul>' : '<p class="muted small">Nothing here.</p>';
+  h += '<div class="card plan"><h2>What they could fix</h2><div class="grid g3"><div><h3>Quick wins</h3>' + pl(P.now) + '</div><div><h3>This month</h3>' + pl(P.month) + '</div><div><h3>Next 3 months</h3>' + pl(P.quarter) + '</div></div></div>';
+  const g = L.google, rk = L.rank || {};
+  h += '<div class="grid g2"><div class="card"><h2>Google profile</h2>' + (g ? '<table>' + [["Name", g.name], ["Category", g.category], ["Address", g.address], ["Phone", g.phone], ["Website", g.website], ["Rating", (g.rating ?? "–") + "★ from " + g.reviews + " reviews"], ["Photos", g.photos]]
+    .map(([k, v]) => '<tr><th>' + k + '</th><td>' + esc(v ?? "–") + '</td></tr>').join("") + '</table>' : '<p class="muted">' + esc(L.google_error || "Not found") + '</p>') + '</div>' +
+    '<div class="card"><h2>Map position</h2>' + (rk.out_of != null ? '<p>“' + esc(rk.query) + '”: <strong>' + (rk.rank ? "#" + rk.rank : "not in top " + rk.out_of) + '</strong></p>' +
+    (rk.competitors?.length ? '<table>' + rk.competitors.map((x) => '<tr><td>' + esc(x.name) + '</td><td>' + (x.rating ?? "–") + '★ (' + x.reviews + ')</td></tr>').join("") + '</table>' : "") : '<p class="muted">' + esc(rk.error || "Not checked") + '</p>') + '</div></div>';
+  if (L.ai && !L.ai.error) h += '<div class="card">' + aiCard(L.ai) + '</div>';
+  h += '<div class="card"><h2>All checks</h2><div class="tablewrap"><table><tbody>' + Object.keys(S).map((k) => { const rs = L.results.filter((x) => x.section === k); return rs.length ? '<tr><th colspan="4" style="padding-top:16px">' + S[k] + '</th></tr>' + rs.map((x) =>
+    '<tr><td>' + status(x.fraction) + '</td><td>' + esc(x.label) + '</td><td class="small">' + esc(x.detail) + '</td><td>' + (x.earned ?? "–") + '/' + x.points + '</td></tr>').join("") : ""; }).join("") + '</tbody></table></div></div>';
+  $("#main").innerHTML = h;
+}
+async function rsProspect(id, b) {
+  b.disabled = true;
+  try { const r = await api("/api/research/" + id + "/prospect", {method: "POST"}); location.hash = "#/c/" + r.id; }
+  catch (e) { alert(e.message); b.disabled = false; }
+}
+
 function route() {
-  const m = location.hash.match(/^#\/c\/(\d+)(\/run)?/);
-  (m ? show(+m[1], !!m[2]) : list()).catch((e) => { $("#main").innerHTML = '<div class="card">' + esc(e.message) + '</div>'; });
+  const m = location.hash.match(/^#\/c\/(\d+)(\/run)?/), rm = location.hash.match(/^#\/r\/(\d+)/);
+  (m ? show(+m[1], !!m[2]) : rm ? researchShow(+rm[1]) : location.hash === "#/research" ? research() : list()).catch((e) => { $("#main").innerHTML = '<div class="card">' + esc(e.message) + '</div>'; });
 }
 window.addEventListener("hashchange", route); route();
 </script></body></html>
