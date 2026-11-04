@@ -25,6 +25,17 @@ export function streetOf(address) {
   return m ? m[1].trim() : "";
 }
 const postcodeOf = (address) => ((address || "").match(/\b\d{5}\b/) || [])[0] || "";
+// Town from a Google address like "3 Rue Dupanloup, 74000 Poisy, France" → "Poisy".
+export function townOf(address) {
+  const m = (address || "").match(/\b\d{5}\s+([^,]+)/);
+  return m ? m[1].trim() : "";
+}
+// Words that say what a business does, for comparing the Google category with the activity.
+const STOP = new Set(["de", "des", "du", "la", "le", "les", "et", "en", "a", "au", "aux", "pour", "the", "and", "of", "for", "service", "services"]);
+const words = (s) => plain(s).split(" ").filter((w) => w.length >= 3 && !STOP.has(w));
+// Checks that count towards "found without your name": what a customer meets when they search for the
+// activity and town, not the business name.
+export const FOUND_IDS = { map_rank: "Google Maps", ai_recommended: "AI assistants" };
 
 // Checks that don't need the site's pages (they use Google, robots.txt or llms.txt).
 const PAGE_FREE = new Set(["https", "speed", "ai_bots", "llms"]);
@@ -137,6 +148,17 @@ export function runChecks(ctx) {
   add("gbp", "local", "Google Business Profile found and open", 5,
     () => gbp ? [gbp.status && gbp.status !== "OPERATIONAL" ? 0.3 : 1, `${gbp.name} · ${gbp.category || "no category"}`] : zeroIfMissing("no Google profile found for this business"),
     "Claim or create the Google Business Profile and verify it.", "M");
+  add("gbp_category", "local", "Google category matches the activity", 3,
+    () => {
+      if (!gbp) return noGbp();
+      if (!gbp.category) return [0, "no category on the profile"];
+      const want = words(ctx.category);
+      if (!want.length) return [null, `category “${gbp.category}” (activity not set, not checked)`];
+      const have = new Set(words(gbp.category));
+      const match = want.some((w) => have.has(w) || [...have].some((h) => h.startsWith(w) || w.startsWith(h)));
+      return [match ? 1 : 0, `Google category “${gbp.category}” for “${ctx.category}”`];
+    },
+    "Set the profile's main category to the exact activity customers search for, and add secondary categories for the other services.", "S");
   add("gbp_complete", "local", "Profile complete (hours, website, photos, description)", 4,
     () => gbp ? [(+gbp.has_hours + +!!gbp.website + Math.min(1, gbp.photos / 10) + +gbp.has_description) / 4,
       `hours ${gbp.has_hours ? "yes" : "no"}, website ${gbp.website ? "yes" : "no"}, photos ${gbp.photos}${gbp.photos >= 10 ? "+" : ""}, description ${gbp.has_description ? "yes" : "no"}`] : noGbp(),
@@ -157,9 +179,15 @@ export function runChecks(ctx) {
       // Service-area businesses hide their address on Google: then only the phone can match.
       if (!gbp.address) return [phone ? 1 : 0, `phone ${gbp.phone || "none on Google"} ${phone ? "found" : "not found"} on site (no address shown on Google)`];
       const pc = postcodeOf(gbp.address), st = streetOf(gbp.address);
-      const addr = ok.some((p) => p.has_street) || (!st && ok.some((p) => p.postcodes.includes(pc)));
+      const town = townOf(gbp.address);
+      const street = ok.some((p) => p.has_street) || (!st && ok.some((p) => p.postcodes.includes(pc)));
+      // The street alone isn't enough: Google sometimes files the business under the wrong town
+      // ("74000 Poisy" for an Annecy address), which customers and directories then copy.
+      const townOk = !town || ok.some((p) => p.has_town) || (city && plain(town) === city);
+      const addr = street && townOk;
       return [0.5 * phone + 0.5 * addr,
-        `phone ${gbp.phone || "none on Google"} ${phone ? "found" : "not found"} on site; address “${gbp.address}” ${addr ? "found" : "not found"} on site`];
+        `phone ${gbp.phone || "none on Google"} ${phone ? "found" : "not found"} on site; address “${gbp.address}”` +
+        (addr ? " found on site" : street ? `: street found on site, but not the town “${town}” shown on Google (check the town on the profile)` : " not found on site")];
     },
     "Show exactly the Google name, address and phone in the site footer, and match every directory to it.", "S");
   add("site_link", "local", "Profile links to this website", 2,
@@ -252,10 +280,21 @@ export function score(results) {
   const earned = Object.values(sections).reduce((n, s) => n + s.earned, 0);
   const possible = Object.values(sections).reduce((n, s) => n + s.possible, 0);
   return {
+    found: foundScore(results),
     total: possible ? Math.round((100 * earned) / possible) : 0,
     coverage: Math.round((100 * possible) / results.reduce((n, r) => n + r.points, 0)),
     sections,
   };
+}
+
+// "Found without your name": map position for the main search and whether AI assistants name the
+// business when asked for the activity. Shown beside the overall score, which a solid but invisible
+// site can push up through technical checks.
+export function foundScore(results) {
+  const parts = results.filter((r) => FOUND_IDS[r.id] && r.fraction !== null)
+    .map((r) => ({ id: r.id, name: FOUND_IDS[r.id], earned: r.earned, points: r.points, detail: r.detail }));
+  const possible = parts.reduce((n, p) => n + p.points, 0);
+  return { pct: possible ? Math.round((100 * parts.reduce((n, p) => n + p.earned, 0)) / possible) : null, parts };
 }
 
 // Biggest gains first; quick wins break ties.

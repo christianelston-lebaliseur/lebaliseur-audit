@@ -53,7 +53,7 @@ async function getText(url) {
 }
 
 // Parse one HTML response into page facts.
-export async function parsePage(resp, city, street = "") {
+export async function parsePage(resp, city, street = "", town = "") {
   const finalUrl = resp.url;
   const host = normHost(new URL(finalUrl).hostname);
   const p = {
@@ -150,6 +150,7 @@ export async function parsePage(resp, city, street = "") {
   const plain = (x) => x.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
   p.postcodes = [...new Set(text.match(/\b(?:0[1-9]|[1-8]\d|9[0-5])\d{3}\b/g) || [])].slice(0, 5);
   p.has_street = !!street && plain(text).includes(plain(street));
+  p.has_town = !!town && plain(text).includes(plain(town));
   p.has_faq_text = /\b(faq|questions fréquentes|questions frequentes|foire aux questions)\b/i.test(low);
 
   const types = new Set();
@@ -183,7 +184,7 @@ function robotsBlocks(robots, agent) {
   return false;
 }
 
-export async function crawl(startUrl, city = "", maxPages = 25, street = "") {
+export async function crawl(startUrl, city = "", maxPages = 25, street = "", town = "") {
   const out = { start_url: startUrl, pages: [], errors: [], site: {} };
   const s = out.site;
   let start;
@@ -225,7 +226,7 @@ export async function crawl(startUrl, city = "", maxPages = 25, street = "") {
     if (resp.status >= 400) { out.pages.push({ url, status: resp.status }); continue; }
     if (!(resp.headers.get("content-type") || "").includes("text/html")) continue;
     let page;
-    try { page = await parsePage(resp, city, street); }
+    try { page = await parsePage(resp, city, street, town); }
     catch (e) { out.pages.push({ url, status: 0, error: String(e.message || e).slice(0, 120) }); continue; }
     if (!s.generator && page.generator) s.generator = page.generator;
     out.pages.push(page);
@@ -249,7 +250,7 @@ export async function crawl(startUrl, city = "", maxPages = 25, street = "") {
       "Accept": "text/html,application/xhtml+xml", "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.8" } });
     if (again.r && again.r.status < 400 && (again.r.headers.get("content-type") || "").includes("text/html")) {
       try {
-        const page = await parsePage(again.r, city, street);
+        const page = await parsePage(again.r, city, street, town);
         if ("title" in page) {
           out.pages = out.pages.filter((p) => p !== first);
           out.pages.unshift(page);

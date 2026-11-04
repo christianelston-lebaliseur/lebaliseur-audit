@@ -30,6 +30,7 @@ const FR = {
   gbp: ["Fiche Google Business", "Revendiquer, compléter et valider votre fiche Google."],
   gbp_complete: ["Fiche Google complète", "Horaires, site, description et au moins 10 vraies photos."],
   reviews: ["Avis Google", "Demander un avis à chaque client, sans rien offrir en échange, et répondre à tous les avis."],
+  gbp_category: ["Catégorie Google adaptée à l'activité", "Choisir comme catégorie principale l'activité exacte que les clients recherchent, et ajouter les autres services en catégories secondaires."],
   map_rank: ["Position sur Google Maps", "Travailler catégorie, avis, contenu local et annuaires pour remonter sur la carte."],
   nap: ["Adresse et téléphone cohérents", "Afficher exactement la même adresse et le même numéro que sur Google, partout."],
   site_link: ["Fiche reliée au site", "Indiquer l'adresse du site dans la fiche Google."],
@@ -186,7 +187,7 @@ export async function publicCheck(req, env, deps) {
     .sort((a, b) => b.gain - a.gain).slice(0, 3)
     .map((r) => ({ label: en ? r.label : FR[r.id]?.[0] || r.label, fix: en ? r.fix : FR[r.id]?.[1] || r.fix }));
   await notify(env, { leadId, en, business: run.google?.name || business, city, email, search,
-    first_name: (b.first_name || "").trim(), phone: (b.phone || "").trim(), site: run.site, total: run.score.total, top, clientId, reqUrl: req.url });
+    first_name: (b.first_name || "").trim(), phone: (b.phone || "").trim(), site: run.site, total: run.score.total, found: run.score.found?.pct ?? null, top, clientId, reqUrl: req.url });
   return new Response(JSON.stringify({
     business: run.google?.name || business,
     address: run.google?.address || null,
@@ -195,6 +196,7 @@ export async function publicCheck(req, env, deps) {
     site: run.site || null,
     total: run.score.total,
     coverage: run.score.coverage,
+    found: run.score.found ? { pct: run.score.found.pct, parts: run.score.found.parts.map((p) => ({ id: p.id, earned: p.earned, points: p.points })) } : null,
     fb: await fbToken(env, leadId),
     // The AI area only appears once it has actually run (an AI key is set).
     sections: Object.entries(run.score.sections).filter(([k, s]) => k !== "aivis" || s.pct != null).map(([k, s]) => ({ name: (SECTION_FR[k] || [k, k])[en ? 1 : 0], pct: s.pct })),
@@ -219,7 +221,7 @@ async function notify(env, d) {
     to: [{ email: env.MAIL_TO }],
     replyTo: { email: d.email, name: d.first_name || d.business },
     subject: `Diagnostic en ligne : ${d.business} · ${d.total}/100`,
-    htmlContent: `<h2>Nouveau diagnostic en ligne</h2><p><strong>${e(d.business)}</strong> (${e(d.city)}) · score <strong>${d.total}/100</strong></p>
+    htmlContent: `<h2>Nouveau diagnostic en ligne</h2><p><strong>${e(d.business)}</strong> (${e(d.city)}) · score <strong>${d.total}/100</strong>${d.found != null ? " · trouvé sans son nom : <strong>" + d.found + " %</strong>" : ""}</p>
       <p>${e(d.first_name)} · ${e(d.email)}${d.phone ? " · " + e(d.phone) : ""}<br>Site : ${e(d.site || "aucun")}${d.search ? "<br>Recherche indiquée : « " + e(d.search) + " »" : ""}</p>
       <ol>${list}</ol><p><a href="${origin}/#/c/${d.clientId}">Ouvrir le rapport complet</a></p>`,
   });
@@ -230,7 +232,7 @@ async function notify(env, d) {
     replyTo: { email: env.MAIL_TO, name: "Chris Elston" },
     subject: en ? `Your visibility score: ${d.total}/100` : `Votre score de visibilité : ${d.total}/100`,
     htmlContent: (en
-      ? `<p>Hello${d.first_name ? " " + e(d.first_name) : ""},</p><p>Thanks for running the Le Baliseur visibility check for <strong>${e(d.business)}</strong>. Your score: <strong>${d.total}/100</strong>.</p><p>Your three priorities:</p><ol>${list}</ol><p>The full report covers around thirty checks, your exact map position against three competitors and a step-by-step plan. Just reply to this email if you'd like me to go through it with you, free and with no commitment.</p><p>Chris Elston<br>Le Baliseur · Annecy</p>`
-      : `<p>Bonjour${d.first_name ? " " + e(d.first_name) : ""},</p><p>Merci d'avoir fait le diagnostic de visibilité du Baliseur pour <strong>${e(d.business)}</strong>. Votre score : <strong>${d.total}/100</strong>.</p><p>Vos trois priorités :</p><ol>${list}</ol><p>Le rapport complet comprend une trentaine de points, votre position exacte face à trois concurrents et un plan étape par étape. Répondez simplement à cet e-mail si vous souhaitez que je vous le présente, gratuitement et sans engagement.</p><p>Chris Elston<br>Le Baliseur · Annecy</p>`),
+      ? `<p>Hello${d.first_name ? " " + e(d.first_name) : ""},</p><p>Thanks for running the Le Baliseur visibility check for <strong>${e(d.business)}</strong>. Your score: <strong>${d.total}/100</strong>.${d.found != null ? ` When someone searches for what you do without your name (Google Maps and AI assistants), you score <strong>${d.found}%</strong>.` : ""}</p><p>Your three priorities:</p><ol>${list}</ol><p>The full report covers around thirty checks, your exact map position against three competitors and a step-by-step plan. Just reply to this email if you'd like me to go through it with you, free and with no commitment.</p><p>Chris Elston<br>Le Baliseur · Annecy</p>`
+      : `<p>Bonjour${d.first_name ? " " + e(d.first_name) : ""},</p><p>Merci d'avoir fait le diagnostic de visibilité du Baliseur pour <strong>${e(d.business)}</strong>. Votre score : <strong>${d.total}/100</strong>.${d.found != null ? ` Quand on cherche votre activité sans votre nom (Google Maps et assistants IA), vous obtenez <strong>${d.found} %</strong>.` : ""}</p><p>Vos trois priorités :</p><ol>${list}</ol><p>Le rapport complet comprend une trentaine de points, votre position exacte face à trois concurrents et un plan étape par étape. Répondez simplement à cet e-mail si vous souhaitez que je vous le présente, gratuitement et sans engagement.</p><p>Chris Elston<br>Le Baliseur · Annecy</p>`),
   });
 }

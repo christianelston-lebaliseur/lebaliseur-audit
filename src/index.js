@@ -3,7 +3,7 @@
 // stores the result and re-audits every client monthly.
 import { crawl, normHost, normSite } from "./crawl.js";
 import { pagespeed, findBusiness, findCandidates, placeById, mapRank, countryOf, searchBusinesses } from "./sources.js";
-import { runChecks, score, plan, compare, streetOf, SECTIONS } from "./checks.js";
+import { runChecks, score, plan, compare, streetOf, townOf, SECTIONS } from "./checks.js";
 import APP_HTML from "./app.html";
 import LOGIN_HTML from "./login.html";
 import CHECK_HTML from "./check.html";
@@ -113,7 +113,7 @@ export async function audit(env, client, opts = {}) {
   const [crawlRes, psi, rank, aiRaw] = await Promise.all([
     site ? // Pages read per audit. Kept low for the free Cloudflare plan (10 ms of processing per request);
     // on Workers Paid set the CRAWL_PAGES variable to 25 for fuller reports.
-    crawl(site, client.city, opts.maxPages || Math.min(+env.CRAWL_PAGES || 10, opts.public ? 12 : 25), streetOf(place?.address))
+    crawl(site, client.city, opts.maxPages || Math.min(+env.CRAWL_PAGES || 10, opts.public ? 12 : 25), streetOf(place?.address), townOf(place?.address))
       : { site: { reachable: false, none: true, social: social ? rawSite : null }, pages: [],
           errors: [social ? "Only a social profile, no website" : "No website known"] },
     site ? pagespeed(site, key) : { error: "no website" },

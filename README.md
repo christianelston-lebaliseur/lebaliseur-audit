@@ -8,12 +8,14 @@ Private web tool: type a business name, and it finds the business on Google, cra
 |---|---|---|
 | Technical health | 25 | HTTPS, indexable, sitemap, broken pages, mobile, PageSpeed |
 | On-page SEO | 25 | titles, uniqueness, meta descriptions, H1, town in title/H1, content depth, image alt text |
-| Local & Google profile | 25 | profile found, completeness, reviews, map position, address/phone match, website link |
+| Local & Google profile | 28 | profile found, Google category matches the activity, completeness, reviews, map position, address (street and town)/phone match, website link |
 | AI search readiness | 15 | business schema, FAQ, AI crawlers allowed, llms.txt, service pages |
 | Trust & conversion | 10 | legal notice, privacy, click-to-call/contact, booking link |
 | Recommended by AI assistants | 15 | named when people ask ChatGPT / Perplexity / Gemini for the service, known by name, own site cited |
 
 The score is out of 100, scaled over the checks that ran.
+
+Each report also shows **Found without your name**: the map position for the main search plus whether AI assistants name the business when asked for the activity (15 points, shown as a %). It is the number that drives new enquiries, and it can be low even when the overall score looks healthy.
 
 Checks that can't run (for example without a Google key) are left out, and the score is scaled over what did run; the report shows the coverage.
 

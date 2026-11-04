@@ -149,6 +149,23 @@ async function runAudit(id, btn) {
 }
 
 // ---------- Client report ----------
+// "Found without your name": map position + named by AI for the activity. Older audits were saved
+// before this score existed, so it is worked out from their results when missing.
+const FOUND = {map_rank: "Google Maps", ai_recommended: "AI assistants"};
+function foundOf(L) {
+  if (L.score && L.score.found) return L.score.found;
+  const parts = (L.results || []).filter((r) => FOUND[r.id] && r.fraction !== null)
+    .map((r) => ({id: r.id, name: FOUND[r.id], earned: r.earned, points: r.points, detail: r.detail}));
+  const p = parts.reduce((n, x) => n + x.points, 0);
+  return {pct: p ? Math.round(100 * parts.reduce((n, x) => n + x.earned, 0) / p) : null, parts};
+}
+function foundCard(L) {
+  const f = foundOf(L);
+  if (f.pct == null) return "";
+  return '<div class="card"><div class="row"><h2 style="margin:0">Found without your name</h2><span class="badge" style="background:' + col(f.pct) + '">' + f.pct + '%</span></div>' +
+    '<p class="small muted" style="margin:6px 0 10px">What a customer sees when they search for the activity and town, not the business name. The overall score also counts things customers never see (speed, tags, legal pages), so a business can score well and still be hard to find.</p>' +
+    f.parts.map((x) => '<div class="row"><span>' + esc(x.name) + '</span><strong>' + x.earned + ' / ' + x.points + '</strong></div><div class="small muted" style="margin-bottom:8px">' + esc(x.detail) + '</div>').join("") + '</div>';
+}
 function gauge(n) {
   const r = 70, c = 2 * Math.PI * r, f = (n || 0) / 100;
   return '<svg viewBox="0 0 180 180"><circle cx="90" cy="90" r="' + r + '" fill="none" stroke="var(--soft)" stroke-width="16"/>' +
@@ -188,6 +205,7 @@ async function show(id, autorun) {
       const s = sc.sections[k] || {pct: null}; // areas added after this audit was saved
       return '<div class="row"><span>' + name + '</span><strong>' + (s.pct == null ? "not checked" : s.pct + "%") + '</strong></div><div class="bar"><i style="width:' + (s.pct || 0) + '%;background:' + col(s.pct) + '"></i></div>';
     }).join("") + '</div></div>';
+  h += foundCard(L);
 
   if (L.changes) {
     const ch = L.changes, dd = ch.total_delta;
@@ -412,6 +430,7 @@ async function researchShow(id) {
   h += '<div class="grid hero"><div class="card gauge">' + gauge(sc.total) + '<div class="small muted">Checked ' + fmtDate(L.date) + (sc.coverage < 100 ? '<br>' + sc.coverage + '% of checks could run' : "") + '</div></div><div class="card"><h2>By area</h2>' +
     Object.entries(S).map(([k, name]) => { const s = sc.sections[k] || {pct: null};
       return '<div class="row"><span>' + name + '</span><strong>' + (s.pct == null ? "not checked" : s.pct + "%") + '</strong></div><div class="bar"><i style="width:' + (s.pct || 0) + '%;background:' + col(s.pct) + '"></i></div>'; }).join("") + '</div></div>';
+  h += foundCard(L);
   const P = L.plan, pl = (arr) => arr.length ? '<ul>' + arr.map((x) => '<li><strong>' + esc(x.label) + '</strong><span class="gain">+' + x.gain + '</span><div class="small">' + esc(x.fix) + '</div><div class="small muted">Now: ' + esc(x.detail) + '</div></li>').join("") + '</ul>' : '<p class="muted small">Nothing here.</p>';
   h += '<div class="card plan"><h2>What they could fix</h2><div class="grid g3"><div><h3>Quick wins</h3>' + pl(P.now) + '</div><div><h3>This month</h3>' + pl(P.month) + '</div><div><h3>Next 3 months</h3>' + pl(P.quarter) + '</div></div></div>';
   const g = L.google, rk = L.rank || {};
