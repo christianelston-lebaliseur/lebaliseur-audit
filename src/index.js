@@ -130,6 +130,7 @@ export async function audit(env, client, opts = {}) {
   const sf = crawlRes.site || {};
   const warning = !site ? null
     : sf.reachable === false ? "The website didn't respond, so only the Google profile was scored."
+    : sf.readable === false && sf.throttled ? "The website asked us to slow down (too many requests), so its pages weren't checked this time. Re-run the audit in 10 to 15 minutes."
     : sf.readable === false ? "The website answered but couldn't be read (" + (sf.home_error || "refused") + "), so its pages weren't checked. The score covers the Google profile and speed only."
     : null;
   return {

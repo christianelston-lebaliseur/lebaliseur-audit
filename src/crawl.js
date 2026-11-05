@@ -227,7 +227,9 @@ export async function crawl(startUrl, city = "", maxPages = 25, street = "", tow
   s.http_redirects_to_https = !!(httpProbe.r && httpProbe.r.url.startsWith("https://"));
   const home = await get(start.toString());
   if (!home.r) { out.errors.push(`Homepage unreachable: ${home.error}`); s.reachable = false; return out; }
-  s.reachable = home.r.status < 400;
+  // A "slow down" (429/503) means the site is there but rate-limiting us: reachable, just not readable now.
+  s.reachable = home.r.status < 400 || THROTTLED.has(home.r.status);
+  s.throttled = THROTTLED.has(home.r.status);
   s.final_url = home.r.url;
   s.https = home.r.url.startsWith("https://");
   s.home_response_ms = home.ms;
