@@ -47,12 +47,12 @@ export function countryOf(place, site) {
 }
 const langOf = (country) => (country === "GB" ? "en" : "fr");
 
-async function placesSearch(textQuery, key, location, pageSize = 20, country = "FR") {
+async function placesSearch(textQuery, key, location, pageSize = 20, country = "FR", radius = 8000) {
   if (!key) return { error: "Google API key not set" };
   // Include businesses that hide their address and serve an area (home-based trades, consultants…),
   // which Google leaves out by default.
   const body = { textQuery, languageCode: langOf(country), regionCode: country, pageSize, includePureServiceAreaBusinesses: true };
-  if (location) body.locationBias = { circle: { center: location, radius: 8000 } };
+  if (location) body.locationBias = { circle: { center: location, radius } };
   try {
     const r = await fetch(PLACES, {
       method: "POST",
@@ -168,5 +168,71 @@ export async function mapRank(placeId, query, key, location, country = "FR") {
     rank: pos >= 0 ? pos + 1 : null,
     out_of: ids.length,
     competitors: res.places.filter((p) => p.id !== placeId).slice(0, 3).map(summarisePlace),
+  };
+}
+
+// ---- Map position from several points ----
+// A single search from the business's own doorstep flatters it (Google favours what's closest, and a
+// profile name containing the search words ranks first). Like a real customer, we search with plain
+// keywords from a grid of points around the business and report how often it shows in the top 3.
+
+const STOP = new Set(("le la les de des du d l et en au aux un une sur pour chez the and of a an sarl sas eurl " +
+  "cabinet").split(" "));
+const words = (s) => (s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").match(/[a-z0-9]{4,}/g) || [];
+
+// Distinctive words of the business name (not its trade or town, which profile names often repeat:
+// "Caroline Lillaz psychologue Annecy" → caroline, lillaz), to keep branded searches out.
+export function nameWords(name, generic = "") {
+  const g = new Set(words(generic));
+  return words(name).filter((w) => !STOP.has(w) && !g.has(w));
+}
+export const hasWord = (text, list) => { const t = new Set(words(text)); return list.some((w) => t.has(w)); };
+
+// Points around a centre: 9 = 3×3 grid, 5 = centre plus north, south, east and west. dx/dy in steps.
+export function gridPoints(center, n, km) {
+  const steps = n >= 9 ? [[-1, 1], [0, 1], [1, 1], [-1, 0], [0, 0], [1, 0], [-1, -1], [0, -1], [1, -1]]
+    : [[0, 1], [-1, 0], [0, 0], [1, 0], [0, -1]];
+  const dLat = km / 111.32, dLng = km / (111.32 * Math.cos(center.latitude * Math.PI / 180));
+  return steps.map(([dx, dy]) => ({ dx, dy, latitude: center.latitude + dy * dLat, longitude: center.longitude + dx * dLng }));
+}
+
+export async function mapGrid(placeId, keywords, key, center, country = "FR", { points = 9, km = 1.5 } = {}) {
+  if (!center) return { error: "no location on the Google profile" };
+  if (!keywords.length) return { error: "no search set" };
+  const pts = gridPoints(center, points, km);
+  const jobs = [];
+  keywords.forEach((q, qi) => pts.forEach((p, pi) => jobs.push({ q, qi, pi, p })));
+  const out = new Array(jobs.length);
+  for (let i = 0; i < jobs.length; i += 6) {   // a few at a time, to stay gentle on Google's quota
+    await Promise.all(jobs.slice(i, i + 6).map(async (j, k) => {
+      out[i + k] = await placesSearch(j.q, key, { latitude: j.p.latitude, longitude: j.p.longitude }, 20, country, Math.max(1000, km * 1000));
+    }));
+  }
+  const errors = out.filter((r) => r.error);
+  if (errors.length === out.length) return { error: errors[0].error };
+  const cells = [];
+  let competitors = [];
+  jobs.forEach((j, i) => {
+    const r = out[i];
+    if (r.error) return cells.push({ qi: j.qi, pi: j.pi, rank: undefined });
+    const pos = r.places.findIndex((p) => p.id === placeId);
+    cells.push({ qi: j.qi, pi: j.pi, rank: pos >= 0 ? pos + 1 : null });
+    if (j.qi === 0 && j.p.dx === 0 && j.p.dy === 0)
+      competitors = r.places.filter((p) => p.id !== placeId).slice(0, 3).map(summarisePlace);
+  });
+  const done = cells.filter((c) => c.rank !== undefined);
+  const found = done.filter((c) => c.rank);
+  const top3 = found.filter((c) => c.rank <= 3).length;
+  const ranks = found.map((c) => c.rank);
+  const avg = ranks.length ? Math.round(ranks.reduce((a, b) => a + b, 0) / ranks.length * 10) / 10 : null;
+  return {
+    query: keywords[0], queries: keywords, km, out_of: 20,
+    points: pts.map((p, pi) => ({ dx: p.dx, dy: p.dy, ranks: keywords.map((_, qi) => cells.find((c) => c.qi === qi && c.pi === pi)?.rank ?? null) })),
+    cells: done.length, found: found.length, top3, avg,
+    best: ranks.length ? Math.min(...ranks) : null,
+    worst: found.length === done.length && ranks.length ? Math.max(...ranks) : null,   // null = missing from some points
+    // Kept for older screens: a rounded average, never the flattering doorstep position.
+    rank: avg ? Math.round(avg) : null,
+    competitors,
   };
 }

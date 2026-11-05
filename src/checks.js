@@ -176,8 +176,9 @@ export function runChecks(ctx) {
     () => gbp ? [0.6 * Math.min(1, gbp.reviews / 50) + 0.4 * Math.max(0, ((gbp.rating || 0) - 3.5) / 1.5),
       `${gbp.rating ?? "–"}★ from ${gbp.reviews} reviews`] : zeroIfMissing("no Google reviews (no profile)"),
     "Ask every client for a review (QR code or short link), never offer anything in return, and reply to every review.", "M");
-  add("map_rank", "local", "Position on Google Maps for the main search", 5,
-    () => rank.out_of !== undefined ? [rank.rank ? 1 - (rank.rank - 1) / 10 : 0,
+  add("map_rank", "local", "Position on Google Maps across the area", 5,
+    () => rank.points ? [mapFraction(rank), mapDetail(rank)]
+      : rank.out_of !== undefined ? [rank.rank ? 1 - (rank.rank - 1) / 10 : 0,
       `“${rank.query}”: ${rank.rank ? "position " + rank.rank : "not in top " + rank.out_of}`]
       : google.notFound ? [0, "not on Google Maps (no profile)"] : [null, rank.error || "not checked"],
     "Tighten category, reviews, local content and directory listings to climb the map.", "L");
@@ -334,4 +335,17 @@ export function compare(prev, cur) {
     if (p.fraction - r.fraction >= 0.2) worse.push({ label: r.label, from: p.detail, to: r.detail });
   }
   return { total_delta: cur.score.total - prev.score.total, prev_date: prev.date, fixed, worse };
+}
+
+// Mostly how often the business is in the top 3 (where most clicks go), partly its average position.
+function mapFraction(r) {
+  if (!r.cells) return 0;
+  const pos = r.points.flatMap((p) => p.ranks).filter((x) => x !== undefined)
+    .reduce((a, x) => a + (x ? Math.max(0, 1 - (x - 1) / 10) : 0), 0) / r.cells;
+  return 0.7 * r.top3 / r.cells + 0.3 * pos;
+}
+function mapDetail(r) {
+  const n = r.points.length;
+  return `${r.queries.map((q) => "“" + q + "”").join(" and ")} from ${n} points ${r.km} km apart: top 3 in ${r.top3} of ${r.cells} searches` +
+    (r.found ? `, average position ${r.avg} (best ${r.best}, worst ${r.worst ?? "not in top " + r.out_of})` : `, not in the top ${r.out_of} anywhere`);
 }
