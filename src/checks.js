@@ -40,6 +40,8 @@ export const FOUND_IDS = { map_rank: "Google Maps", ai_recommended: "AI assistan
 // Checks that don't need the site's pages (they use Google, robots.txt or llms.txt).
 const PAGE_FREE = new Set(["https", "speed", "ai_bots", "llms"]);
 
+const BOOKING_PATH = /\/(reserv|booking|book-?now|book-online|rendez-?vous|prendre-rdv|rdv|prise-de-rendez|appointment)/i;
+
 export function runChecks(ctx) {
   const { crawl, pagespeed: psi = {}, google = {}, rank = {} } = ctx;
   const site = crawl.site || {};
@@ -54,7 +56,10 @@ export function runChecks(ctx) {
   const city = plain(ctx.city);
   const schema = [...new Set(ok.flatMap((p) => p.schema_types))];
   const sitePhones = new Set(ok.flatMap((p) => p.phones.map(last9)));
-  const broken = pages.filter((p) => !p.status || p.status >= 400);
+  // A page the site refused because we went too fast (429/503) isn't broken: it's left out, and said so.
+  const throttled = pages.filter((p) => p.throttled);
+  const broken = pages.filter((p) => !p.throttled && (!p.status || p.status >= 400));
+  const checkedPages = pages.length - throttled.length;
   const links = site.internal_urls || [];
   const like = (words) => [...pages.map((p) => p.url + " " + (p.title || "")), ...links]
     .filter((t) => words.some((w) => plain(t).includes(w)));
@@ -100,8 +105,12 @@ export function runChecks(ctx) {
     () => [site.sitemap ? 1 : 0, site.sitemap ? "found" : "no sitemap.xml"],
     "Publish sitemap.xml, list it in robots.txt and submit it in Search Console and Bing.", "S");
   add("broken", "tech", "No broken pages", 4,
-    () => [1 - Math.min(1, 3 * ratio(broken.length, pages.length)),
-      broken.length ? `${broken.length} broken: ${broken.slice(0, 3).map((p) => p.url).join(", ")}` : `0 of ${pages.length}`],
+    () => {
+      const note = throttled.length ? ` (${throttled.length} not checked: the site asked us to slow down)` : "";
+      if (!checkedPages) return [null, `not checked: the site asked us to slow down`];
+      return [1 - Math.min(1, 3 * ratio(broken.length, checkedPages)),
+        (broken.length ? `${broken.length} broken: ${broken.slice(0, 3).map((p) => p.url).join(", ")}` : `0 of ${checkedPages}`) + note];
+    },
     "Fix or redirect the broken links.", "S");
   add("mobile", "tech", "Mobile-friendly (viewport)", 3,
     () => [ratio(sum(ok, (p) => p.viewport), ok.length), `${sum(ok, (p) => p.viewport)}/${ok.length} pages`],
@@ -183,7 +192,7 @@ export function runChecks(ctx) {
       const street = ok.some((p) => p.has_street) || (!st && ok.some((p) => p.postcodes.includes(pc)));
       // The street alone isn't enough: Google sometimes files the business under the wrong town
       // ("74000 Poisy" for an Annecy address), which customers and directories then copy.
-      const townOk = !town || ok.some((p) => p.has_town) || (city && plain(town) === city);
+      const townOk = !town || ok.some((p) => p.has_town || (p.has_town_start && p.postcodes.includes(pc))) || (city && plain(town) === city);
       const addr = street && townOk;
       return [0.5 * phone + 0.5 * addr,
         `phone ${gbp.phone || "none on Google"} ${phone ? "found" : "not found"} on site; address “${gbp.address}”` +
@@ -234,7 +243,10 @@ export function runChecks(ctx) {
   add("booking", "trust", "Online booking link", 3,
     () => {
       const b = [...new Set(ok.flatMap((p) => p.booking))];
-      return [b.length ? 1 : 0, b.join(", ") || "none"];
+      if (b.length) return [1, b.join(", ")];
+      // A booking page on the site itself (a WordPress booking plugin, a built-in reservation form).
+      const own = [...pages.map((p) => p.url), ...links].find((u) => { try { return BOOKING_PATH.test(new URL(u).pathname); } catch { return false; } });
+      return own ? [1, `booking page on the site: ${new URL(own).pathname}`] : [0, "none"];
     },
     uk ? "Link the booking tool (Calendly, Fresha, OpenTable…) prominently on every page."
       : "Link the booking tool (Doctolib, Zenchef…) prominently on every page.", "S");

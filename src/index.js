@@ -125,7 +125,7 @@ export async function audit(env, client, opts = {}) {
     category: client.category || "", siteHost: site ? normHost(new URL(site).hostname) : "", ai };
   const results = runChecks(ctx);
   const sc = score(results);
-  const pages = crawlRes.pages.map((p) => ({ url: p.url, status: p.status, title: p.title, words: p.words,
+  const pages = crawlRes.pages.map((p) => ({ url: p.url, status: p.status, throttled: p.throttled || undefined, title: p.title, words: p.words,
     h1: p.h1, meta: !!p.meta_description, schema: p.schema_types, noindex: p.noindex }));
   const sf = crawlRes.site || {};
   const warning = !site ? null

@@ -31,19 +31,42 @@ export function normSite(input) {
   } catch { return ""; }
 }
 
+const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
+// "Slow down" answers (429 Too Many Requests, 503 from a firewall): the page isn't broken, the site's
+// host or security plugin is rate-limiting us. Wait and retry instead of reporting the page as broken.
+export const THROTTLED = new Set([429, 503]);
+
 async function get(url, opts = {}) {
   const t0 = Date.now();
-  try {
-    const r = await fetch(url, {
-      redirect: "follow",
-      headers: { "User-Agent": UA, "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.8" },
-      signal: AbortSignal.timeout(20000),
-      ...opts,
-    });
-    return { r, ms: Date.now() - t0 };
-  } catch (e) {
-    return { error: String(e.message || e), ms: Date.now() - t0 };
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const r = await fetch(url, {
+        redirect: "follow",
+        headers: { "User-Agent": UA, "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.8" },
+        signal: AbortSignal.timeout(20000),
+        ...opts,
+      });
+      if (THROTTLED.has(r.status) && attempt < 2) {
+        const ra = +r.headers.get("retry-after");
+        try { r.body?.cancel(); } catch { /* ignore */ }
+        await sleep(Math.min(6000, ra > 0 ? ra * 1000 : 1500 * (attempt + 1) * (attempt + 1)));
+        continue;
+      }
+      return { r, ms: Date.now() - t0 };
+    } catch (e) {
+      return { error: String(e.message || e), ms: Date.now() - t0 };
+    }
   }
+}
+
+// One key per page: "/reserver/?idFamille=1" and "/reserver/?idFamille=2" are the same page with a
+// filter. The query is kept only where it really picks the page (/?page_id=12, /index.php?p=3).
+export function pageKey(link) {
+  const u = new URL(link);
+  u.hash = "";
+  const keepQuery = u.pathname === "/" || /\.(php|aspx?|cfm)$/i.test(u.pathname);
+  if (!keepQuery) u.search = "";
+  return u.toString();
 }
 
 async function getText(url) {
@@ -64,13 +87,19 @@ export async function parsePage(resp, city, street = "", town = "") {
     generator: "", has_form: false, mailto: false,
   };
   let text = "", title = "", inTitle = false, h1buf = null, ld = null, lds = [];
-  const internal = new Set(), booking = new Set();
+  const internal = new Set(), booking = new Set(), tels = [];
   let skipDepth = 0;
 
   const addLink = (href) => {
     if (!href) return;
     href = href.trim();
-    if (href.startsWith("tel:")) { p.tel_link = true; return; }
+    if (/^tel:/i.test(href)) {
+      p.tel_link = true;
+      // The number in a click-to-call link counts as shown on the site, whatever its format (+33…, 06…).
+      const n = decodeURIComponent(href.slice(4)).replace(/[^\d+]/g, "");
+      if (n.replace(/\D/g, "").length >= 9) tels.push(n);
+      return;
+    }
     if (/^mailto:/i.test(href)) { p.mailto = true; return; }
     if (/^(mailto:|javascript:|#)/i.test(href)) return;
     let u;
@@ -145,12 +174,15 @@ export async function parsePage(resp, city, street = "", town = "") {
   p.words = text ? text.split(" ").length : 0;
   const low = text.toLowerCase();
   if (city) p.city_mentions = low.split(city.toLowerCase()).length - 1;
-  p.phones = [...new Set([...(text.match(PHONE_RE) || []), ...(text.match(UK_PHONE_RE) || [])]
-    .map((x) => x.replace(/[\s.()-]/g, "")))].slice(0, 5);
+  p.phones = [...new Set([...(text.match(PHONE_RE) || []), ...(text.match(UK_PHONE_RE) || []), ...tels]
+    .map((x) => x.replace(/[\s.()-]/g, "")))].slice(0, 8);
   const plain = (x) => x.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
   p.postcodes = [...new Set(text.match(/\b(?:0[1-9]|[1-8]\d|9[0-5])\d{3}\b/g) || [])].slice(0, 5);
   p.has_street = !!street && plain(text).includes(plain(street));
   p.has_town = !!town && plain(text).includes(plain(town));
+  // Merged communes: "74330 Epagny" on the site for "Epagny Metz-Tessy" on Google (checked with the postcode).
+  const townHead = plain(town).split(/[\s-]+/)[0] || "";
+  p.has_town_start = townHead.length >= 4 && plain(text).includes(townHead);
   p.has_faq_text = /\b(faq|questions fréquentes|questions frequentes|foire aux questions)\b/i.test(low);
 
   const types = new Set();
@@ -213,16 +245,18 @@ export async function crawl(startUrl, city = "", maxPages = 25, street = "", tow
   const llms = await getText(base + "/llms.txt");
   s.llms_txt = !!llms && !/<html/i.test(llms.slice(0, 500));
 
-  const seen = new Set([home.r.url]);
+  const seen = new Set([pageKey(home.r.url)]);
   const queue = [{ url: home.r.url, resp: home.r }];
   while (queue.length && out.pages.length < maxPages) {
     const { url } = queue[0];
     let { resp } = queue.shift();
     if (!resp) {
+      await sleep(400); // pages one at a time with a short pause, so small hosts don't rate-limit us
       const g = await get(url);
       if (!g.r) { out.pages.push({ url, status: 0, error: g.error }); continue; }
       resp = g.r;
     }
+    if (THROTTLED.has(resp.status)) { out.pages.push({ url, status: resp.status, throttled: true }); continue; }
     if (resp.status >= 400) { out.pages.push({ url, status: resp.status }); continue; }
     if (!(resp.headers.get("content-type") || "").includes("text/html")) continue;
     let page;
@@ -230,7 +264,8 @@ export async function crawl(startUrl, city = "", maxPages = 25, street = "", tow
     catch (e) { out.pages.push({ url, status: 0, error: String(e.message || e).slice(0, 120) }); continue; }
     if (!s.generator && page.generator) s.generator = page.generator;
     out.pages.push(page);
-    for (const link of page.internal_links) {
+    for (const raw of page.internal_links) {
+      const link = pageKey(raw);
       const path = new URL(link).pathname;
       if (!seen.has(link) && !SKIP_EXT.test(path)) {
         seen.add(link);
@@ -255,7 +290,7 @@ export async function crawl(startUrl, city = "", maxPages = 25, street = "", tow
           out.pages = out.pages.filter((p) => p !== first);
           out.pages.unshift(page);
           s.home_retried = true;
-          for (const link of page.internal_links) seen.add(link);
+          for (const link of page.internal_links) seen.add(pageKey(link));
         }
       } catch { /* still unreadable */ }
     }

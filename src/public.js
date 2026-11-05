@@ -12,6 +12,21 @@ const SECTION_FR = {
   aivis: ["Recommandé par les IA", "Recommended by AI"],
 };
 
+// Words that name a channel, not a search. A search made only of these (plus filler) is unusable.
+const CHANNEL_WORDS = new Set(("google maps map maps gmaps facebook fb instagram insta tiktok linkedin twitter x youtube " +
+  "whatsapp internet web site website siteweb net en ligne online reseaux sociaux social media bouche oreille word mouth " +
+  "recommandation recommandations recommendation recommendations recommande bao pages jaunes pagesjaunes yelp " +
+  "tripadvisor doctolib bing chatgpt ia ai par via sur de du des la le les a au aux et ou on my mon ma mes").split(" "));
+export function usableSearch(search, business = "") {
+  const plain = (x) => String(x || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const w = plain(search).split(/[^a-z0-9]+/).filter(Boolean);
+  if (!w.length) return null;
+  const biz = new Set(plain(business).split(/[^a-z0-9]+/).filter((x) => x.length > 2));
+  // Left after removing channel words and the business's own name: needs at least one real word.
+  const rest = w.filter((x) => !CHANNEL_WORDS.has(x) && !biz.has(x) && x.length > 1);
+  return rest.length ? search : null;
+}
+
 // French wording for each check: [label, fix]. English comes from checks.js.
 const FR = {
   https: ["Site sécurisé (HTTPS)", "Activer le certificat SSL et rediriger tout le site en HTTPS."],
@@ -149,6 +164,9 @@ export async function publicCheck(req, env, deps) {
   const site = normSite((b.site || "").slice(0, 200));
   // Optional: how customers search for them, in their words. Used as the AI question.
   const search = (b.search || "").replace(/[«»"<>]/g, "").replace(/\s+/g, " ").trim().slice(0, 120);
+  // "Google", "Instagram", "bouche à oreille"… answer "where do they find you?", not "what do they type?".
+  // Kept on the lead for you to see, but the AI question then falls back to activity + town.
+  const aiSearch = usableSearch(search, business);
   const lead = await D.prepare(`INSERT INTO leads (date, first_name, email, phone, business, city, category, site, consent, lang, ip_hash, status, search)
     VALUES (datetime('now'),?,?,?,?,?,?,?,1,?,?,'running',?)`)
     .bind((b.first_name || "").trim().slice(0, 60), email, (b.phone || "").trim().slice(0, 30), business, city, category, site,
@@ -179,7 +197,7 @@ export async function publicCheck(req, env, deps) {
     clientId = c.meta.last_row_id;
   }
   const client = await D.prepare("SELECT * FROM clients WHERE id=?").bind(clientId).first();
-  const run = await deps.saveRun(env, clientId, await deps.audit(env, client, { public: true, noProfile, aiQuery: search || null, lang: en ? "en" : "fr" }));
+  const run = await deps.saveRun(env, clientId, await deps.audit(env, client, { public: true, noProfile, aiQuery: aiSearch, lang: en ? "en" : "fr" }));
   await D.prepare("UPDATE leads SET status='done', client_id=?, run_id=?, total=? WHERE id=?")
     .bind(clientId, run.id, run.score.total, leadId).run();
 

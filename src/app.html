@@ -239,7 +239,7 @@ async function show(id, autorun) {
   h += '<div class="card"><h2>Pages crawled (' + L.pages.length + ')</h2>' + (ps ? '<p class="small">PageSpeed mobile: performance ' + ps.performance + ', SEO ' + ps.seo + ', accessibility ' + ps.accessibility + ', best practices ' + ps["best-practices"] + '</p>' : "") +
     (L.crawl_errors?.length ? '<p class="small down">' + esc(L.crawl_errors.join("; ")) + '</p>' : "") +
     '<div class="tablewrap"><table><thead><tr><th>Page</th><th>Title</th><th>Words</th><th>H1</th></tr></thead><tbody>' +
-    L.pages.map((p) => '<tr><td class="small"><a href="' + esc(p.url) + '" target="_blank" rel="noopener">' + esc(p.url.replace(/^https?:\/\/[^/]+/, "") || "/") + '</a>' + (p.status !== 200 ? ' <span class="down">' + p.status + '</span>' : "") + '</td><td class="small">' + esc(p.title || "–") + '</td><td>' + (p.words ?? "") + '</td><td>' + (p.h1 ? p.h1.length : "") + '</td></tr>').join("") +
+    L.pages.map((p) => '<tr><td class="small"><a href="' + esc(p.url) + '" target="_blank" rel="noopener">' + esc(p.url.replace(/^https?:\/\/[^/]+/, "") || "/") + '</a>' + (p.throttled || p.status === 429 ? ' <span class="small" title="The site asked us to slow down: not checked, not broken">' + p.status + ' not checked</span>' : p.status !== 200 ? ' <span class="down">' + p.status + '</span>' : "") + '</td><td class="small">' + esc(p.title || "–") + '</td><td>' + (p.words ?? "") + '</td><td>' + (p.h1 ? p.h1.length : "") + '</td></tr>').join("") +
     '</tbody></table></div></div>';
   $("#main").innerHTML = h;
 }
