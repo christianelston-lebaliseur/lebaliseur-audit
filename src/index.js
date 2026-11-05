@@ -2,7 +2,7 @@
 // Enter a business name; it finds it on Google, crawls the site, scores it,
 // stores the result and re-audits every client monthly.
 import { crawl, normHost, normSite } from "./crawl.js";
-import { pagespeed, findBusiness, findCandidates, placeById, mapRank, countryOf, searchBusinesses } from "./sources.js";
+import { pagespeed, findBusiness, findCandidates, placeById, mapGrid, nameWords, hasWord, countryOf, searchBusinesses } from "./sources.js";
 import { runChecks, score, plan, compare, streetOf, townOf, SECTIONS } from "./checks.js";
 import APP_HTML from "./app.html";
 import LOGIN_HTML from "./login.html";
@@ -109,6 +109,15 @@ export async function audit(env, client, opts = {}) {
   const social = rawSite && SOCIAL.test(new URL(rawSite).hostname);
   const site = social ? "" : rawSite;
   const query = client.query || [client.category, client.city].filter(Boolean).join(" ");
+  // Map position: plain keywords (never the business's name) searched from a grid of points.
+  // Client audits: 9 points × 2 searches. Public check and research: 5 points × 1 search, to keep costs down.
+  // Only Google is called here; the AI assistants (Perplexity…) are asked separately, once per audit.
+  const light = opts.public || opts.research;
+  const trade = (client.category || place?.category || "").toLowerCase().trim();
+  const brand = nameWords(client.name || place?.name, [trade, client.city].join(" "));
+  const keywords = [...new Set([query, trade].map((k) => (k || "").trim()).filter((k) => k && !hasWord(k, brand)))]
+    .slice(0, light ? 1 : +(env.MAP_KEYWORDS || 2));
+  const gridOpts = { points: light ? 5 : +(env.MAP_GRID_POINTS || 9), km: +(env.MAP_GRID_KM || 1.5) };
   const ap = aiPlan(env, client, place, opts, country);
   const [crawlRes, psi, rank, aiRaw] = await Promise.all([
     site ? // Pages read per audit. Kept low for the free Cloudflare plan (10 ms of processing per request);
@@ -117,7 +126,7 @@ export async function audit(env, client, opts = {}) {
       : { site: { reachable: false, none: true, social: social ? rawSite : null }, pages: [],
           errors: [social ? "Only a social profile, no website" : "No website known"] },
     site ? pagespeed(site, key) : { error: "no website" },
-    place && query ? mapRank(place.id, query, key, place.location, country) : { error: place ? "no search set" : "no profile" },
+    place ? mapGrid(place.id, keywords, key, place.location, country, gridOpts) : { error: "no profile" },
     ap.skip ? { error: ap.skip } : askAi(env, ap.prompts, client.city, { only: ap.only, country }),
   ]);
   const ai = analyseAi(aiRaw, aiContext(client, place, site, rank));
@@ -211,7 +220,7 @@ async function api(req, env, url) {
     if (!b.name?.trim() && !b.place_id) return json({ error: "Name is required" }, 400);
     const client = { name: (b.name || "").trim(), city: (b.city || "").trim(), category: (b.category || "").trim(),
       site: (b.site || "").trim(), place_id: b.place_id || null, query: "" };
-    const run = await audit(env, client, { noAi: !b.ai, maxPages: 8 });
+    const run = await audit(env, client, { noAi: !b.ai, maxPages: 8, research: true });
     const g = run.google || {};
     const top = [...run.plan.now, ...run.plan.month, ...run.plan.quarter].sort((x, y) => y.gain - x.gain).slice(0, 3)
       .map((x) => ({ label: x.label, gain: x.gain }));

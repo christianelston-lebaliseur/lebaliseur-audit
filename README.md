@@ -64,3 +64,13 @@ Limits: 3 checks per IP per day, 40 per day in total (`PUBLIC_DAILY_LIMIT` to ch
 | `BREVO_API_KEY` (Secret), `MAIL_FROM`, `MAIL_TO` | email a lead alert to you and the result to the person (same values as the website) |
 | `TURNSTILE_SITEKEY`, `TURNSTILE_SECRET` (Secret) | Cloudflare bot check on the form (the widget's hostnames must include this app's domain) |
 | `CONTACT_URL`, `CONTACT_URL_EN` | where the "free full audit" button leads |
+
+## Map position (search grid)
+
+The map check searches Google with plain keywords, never the business's name, from a grid of points around the business, the way a customer nearby would. It reports how many searches show the business in the top 3, its average, best and worst position, and draws a coloured dot per point.
+
+- Client audits: 9 points (3×3) × 2 searches (the saved search, or trade + town, and the trade alone) = 18 Google lookups.
+- Public check and research mode: 5 points × 1 search = 5 lookups.
+- Only Google is used. The AI assistants (Perplexity etc.) are still asked once per audit, separately.
+- Optional variables: `MAP_GRID_POINTS` (9 or 5), `MAP_GRID_KM` (spacing, default 1.5), `MAP_KEYWORDS` (1 or 2).
+- Score: 70 % share of searches in the top 3, 30 % average position. Older audits keep their single-search result.
