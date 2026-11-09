@@ -33,6 +33,14 @@ export function townOf(address) {
 // Words that say what a business does, for comparing the Google category with the activity.
 const STOP = new Set(["de", "des", "du", "la", "le", "les", "et", "en", "a", "au", "aux", "pour", "the", "and", "of", "for", "service", "services"]);
 const words = (s) => plain(s).split(" ").filter((w) => w.length >= 3 && !STOP.has(w));
+// Professions with no matching type in Google's Places data (the API returns a generic type instead),
+// as word starts after plain(): the category check can't judge them.
+const UNSUPPORTED_TRADES = ["psycholog", "psychotherap", "psychiatr", "psychanal", "sophrolog", "naturopath", "hypno",
+  "osteopath", "kinesiolog", "reflexolog", "dieteticien", "nutritionn", "orthophon", "ergotherap", "psychomotri",
+  "podolog", "pedicure", "coach", "therapeut", "therapist", "counsel", "conjugal", "doula", "midwife"];
+// Generic types Google returns when it has nothing precise (display names after plain()).
+const GENERIC_TYPES = new Set(["clinique", "clinic", "centre", "center", "sante", "health", "medical",
+  "professionnel", "professional", "etablissement", "establishment", "point", "interet", "interest"]);
 // Checks that count towards "found without your name": what a customer meets when they search for the
 // activity and town, not the business name.
 export const FOUND_IDS = { map_rank: "Google Maps", ai_recommended: "AI assistants" };
@@ -165,7 +173,14 @@ export function runChecks(ctx) {
       if (!want.length) return [null, `category “${gbp.category}” (activity not set, not checked)`];
       const have = new Set(words(gbp.category));
       const match = want.some((w) => have.has(w) || [...have].some((h) => h.startsWith(w) || w.startsWith(h)));
-      return [match ? 1 : 0, `Google category “${gbp.category}” for “${ctx.category}”`];
+      if (match) return [1, `Google category “${gbp.category}” for “${ctx.category}”`];
+      // Google's data only gives one main type from a fixed list, with nothing precise for many
+      // professions (a psychologist comes back as "Clinique"). Can't judge those: leave it out of the score.
+      const unsupported = want.some((w) => UNSUPPORTED_TRADES.some((u) => w.startsWith(u)));
+      const generic = [...have].every((h) => GENERIC_TYPES.has(h));
+      if (unsupported || generic)
+        return [null, `can't check: Google's data has no precise category for “${ctx.category}” (shows “${gbp.category}”); check it on the profile itself`];
+      return [0, `Google category “${gbp.category}” for “${ctx.category}”`];
     },
     "Set the profile's main category to the exact activity customers search for, and add secondary categories for the other services.", "S");
   add("gbp_complete", "local", "Profile complete (hours, website, photos, description)", 4,
