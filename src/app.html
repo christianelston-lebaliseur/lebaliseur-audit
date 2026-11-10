@@ -245,6 +245,7 @@ async function show(id, autorun) {
       .map(([k, v]) => '<tr><th>' + k + '</th><td>' + esc(v || "–") + '</td></tr>').join("") + '</table>' : '<p class="muted">' + esc(L.google_error || "Not found") + '</p>') +
     '</div><div class="card"><h2>Map position</h2>' + mapCard(rk, true) + '</div></div>';
 
+  if (L.searches) h += '<div class="card">' + searchCard(L.searches) + '</div>';
   h += '<div class="card" id="aicard">' + aiCard(L.ai) + '</div>' + aiEditor(id, c.ai_prompts);
 
   h += '<div class="card"><h2>All checks</h2><div class="tablewrap"><table><thead><tr><th></th><th>Check</th><th>Finding</th><th>Points</th></tr></thead><tbody>' +
@@ -262,6 +263,16 @@ async function show(id, autorun) {
 }
 // ---------- AI assistants ----------
 const ENG = {chatgpt: "ChatGPT", perplexity: "Perplexity", gemini: "Gemini"};
+// What people search: Google's suggestions for the trade (private, never shown to the client).
+function searchCard(s) {
+  if (!s) return "";
+  let h = '<h2>What people search <span class="gain">PRIVATE</span></h2>';
+  if (s.error) return h + '<p class="muted small">Not available for this audit (' + esc(s.error) + ').</p>';
+  h += '<p class="muted small">The phrases Google suggests as people type "' + esc(s.trade) + '"' + (s.city ? ' and the town' : '') + '. Real searches, without counts, roughly most popular first. Use them for page titles, headings, Google profile services and posts.</p><div class="grid g3">';
+  return h + s.groups.map((g) => '<div><h3>' + esc(g.label) + ' <span class="muted small">"' + esc(g.seed) + '…"</span></h3><ul class="small">' +
+    g.items.map((x) => '<li>' + esc(x) + '</li>').join('') + '</ul></div>').join('') + '</div>';
+}
+
 function aiCard(ai, test) {
   let h = '<h2>What AI assistants answer' + (test ? ' <span class="gain">TEST · NOT SAVED</span>' : '') + '</h2>';
   if (!ai || ai.error) return h + '<p class="muted small">Not checked' + (ai?.error ? ': ' + esc(ai.error) : '') +
@@ -454,6 +465,7 @@ async function researchShow(id) {
   h += '<div class="grid g2"><div class="card"><h2>Google profile</h2>' + (g ? '<table>' + [["Name", g.name], ["Category", g.category], ["Address", g.address], ["Phone", g.phone], ["Website", g.website], ["Rating", (g.rating ?? "–") + "★ from " + g.reviews + " reviews"], ["Photos", g.photos]]
     .map(([k, v]) => '<tr><th>' + k + '</th><td>' + esc(v ?? "–") + '</td></tr>').join("") + '</table>' : '<p class="muted">' + esc(L.google_error || "Not found") + '</p>') + '</div>' +
     '<div class="card"><h2>Map position</h2>' + mapCard(rk, false) + '</div></div>';
+  if (L.searches) h += '<div class="card">' + searchCard(L.searches) + '</div>';
   if (L.ai && !L.ai.error) h += '<div class="card">' + aiCard(L.ai) + '</div>';
   h += '<div class="card"><h2>All checks</h2><div class="tablewrap"><table><tbody>' + Object.keys(S).map((k) => { const rs = L.results.filter((x) => x.section === k); return rs.length ? '<tr><th colspan="4" style="padding-top:16px">' + S[k] + '</th></tr>' + rs.map((x) =>
     '<tr><td>' + status(x.fraction) + '</td><td>' + esc(x.label) + '</td><td class="small">' + esc(x.detail) + '</td><td>' + (x.earned ?? "–") + '/' + x.points + '</td></tr>').join("") : ""; }).join("") + '</tbody></table></div></div>';

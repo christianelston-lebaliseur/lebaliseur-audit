@@ -236,3 +236,41 @@ export async function mapGrid(placeId, keywords, key, center, country = "FR", { 
     competitors,
   };
 }
+
+// ---- What people search: Google's autocomplete suggestions ----
+// The phrases Google offers as people type, for the business's trade (with and without the town).
+// Real searches, free, no counts. 6 requests (3 for the public check and research, which also send
+// emails) so a whole audit stays within the free plan's limit of 50 outside requests.
+// Only shown in the private report and the lead email, never to the client.
+const SEEDS = {
+  FR: (t, c) => [[`${t} ${c} `, "With the town"], [`${t} `, "The trade alone"], [`${t} près de `, "Near me"],
+    [`meilleur ${t} `, "Best…"], [`quel ${t} `, "Questions"], [`prix ${t} `, "Price"]],
+  GB: (t, c) => [[`${t} ${c} `, "With the town"], [`${t} `, "The trade alone"], [`${t} near `, "Near me"],
+    [`best ${t} `, "Best…"], [`which ${t} `, "Questions"], [`${t} cost `, "Price"]],
+};
+
+export async function searchSuggestions(trade, city, country = "FR", brand = [], few = false) {
+  const t = (trade || "").toLowerCase().trim();
+  if (!t) return { error: "no activity known" };
+  const gb = country === "GB";
+  const town = (city || "").toLowerCase().trim();
+  const seeds = (gb ? SEEDS.GB : SEEDS.FR)(t, town).filter(([, label], i) => town || i > 0)
+    .filter(([, label]) => !few || ["With the town", "The trade alone", "Questions"].includes(label));
+  const seen = new Set();
+  const groups = await Promise.all(seeds.map(async ([seed, label]) => {
+    try {
+      const q = new URLSearchParams({ client: "firefox", hl: gb ? "en" : "fr", gl: gb ? "gb" : "fr", ie: "utf-8", oe: "utf-8", q: seed });
+      const r = await fetch("https://suggestqueries.google.com/complete/search?" + q, {
+        headers: { "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0" },
+        signal: AbortSignal.timeout(8000) });
+      if (!r.ok) return { seed: seed.trim(), label, items: [], error: "HTTP " + r.status };
+      const j = JSON.parse(await r.text());
+      return { seed: seed.trim(), label, items: (j[1] || []).map((s) => String(s).trim()).filter(Boolean) };
+    } catch (e) { return { seed: seed.trim(), label, items: [], error: String(e.message || e) }; }
+  }));
+  // The business's own name searches are left out; each phrase is listed once, in its first group.
+  for (const g of groups) g.items = g.items.filter((s) => !hasWord(s, brand) && !seen.has(s) && seen.add(s));
+  const total = groups.reduce((n, g) => n + g.items.length, 0);
+  if (!total) return { error: groups.find((g) => g.error)?.error || "Google returned no suggestions", groups: [] };
+  return { trade: t, city: city || "", groups: groups.filter((g) => g.items.length), total };
+}

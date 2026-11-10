@@ -2,7 +2,7 @@
 // Enter a business name; it finds it on Google, crawls the site, scores it,
 // stores the result and re-audits every client monthly.
 import { crawl, normHost, normSite } from "./crawl.js";
-import { pagespeed, findBusiness, findCandidates, placeById, mapGrid, nameWords, hasWord, countryOf, searchBusinesses } from "./sources.js";
+import { pagespeed, findBusiness, findCandidates, placeById, mapGrid, nameWords, hasWord, countryOf, searchBusinesses, searchSuggestions } from "./sources.js";
 import { runChecks, score, plan, compare, streetOf, townOf, SECTIONS } from "./checks.js";
 import APP_HTML from "./app.html";
 import LOGIN_HTML from "./login.html";
@@ -129,6 +129,10 @@ export async function audit(env, client, opts = {}) {
     place ? mapGrid(place.id, keywords, key, place.location, country, gridOpts) : { error: "no profile" },
     ap.skip ? { error: ap.skip } : askAi(env, ap.prompts, client.city, { only: ap.only, country }),
   ]);
+  // What people search for this trade (Google suggestions), for the private report only. Asked after
+  // everything else, so if the plan's limit on outside requests is reached only this part is lost.
+  const searches = await searchSuggestions(trade || query, client.city || townOf(place?.address) || "", country, brand, light)
+    .catch((e) => ({ error: String(e.message || e) }));
   const ai = analyseAi(aiRaw, aiContext(client, place, site, rank));
   const ctx = { crawl: crawlRes, pagespeed: psi, google, rank, city: client.city || "", country,
     category: client.category || "", siteHost: site ? normHost(new URL(site).hostname) : "", ai };
@@ -145,7 +149,7 @@ export async function audit(env, client, opts = {}) {
   return {
     date: new Date().toISOString(), site, social_profile: social ? rawSite : null, query, country, score: sc, results, plan: plan(results), warning,
     google: place || null, google_error: google.error || null, rank, pagespeed: psi,
-    site_facts: crawlRes.site, crawl_errors: crawlRes.errors, pages, ai,
+    site_facts: crawlRes.site, crawl_errors: crawlRes.errors, pages, ai, searches,
   };
 }
 

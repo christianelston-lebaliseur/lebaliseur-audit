@@ -205,7 +205,7 @@ export async function publicCheck(req, env, deps) {
     .sort((a, b) => b.gain - a.gain).slice(0, 3)
     .map((r) => ({ label: en ? r.label : FR[r.id]?.[0] || r.label, fix: en ? r.fix : FR[r.id]?.[1] || r.fix }));
   await notify(env, { leadId, en, business: run.google?.name || business, city, email, search,
-    first_name: (b.first_name || "").trim(), phone: (b.phone || "").trim(), site: run.site, total: run.score.total, found: run.score.found?.pct ?? null, top, clientId, reqUrl: req.url });
+    first_name: (b.first_name || "").trim(), phone: (b.phone || "").trim(), site: run.site, searches: run.searches, total: run.score.total, found: run.score.found?.pct ?? null, top, clientId, reqUrl: req.url });
   return new Response(JSON.stringify({
     business: run.google?.name || business,
     address: run.google?.address || null,
@@ -234,6 +234,10 @@ async function notify(env, d) {
   }).catch(() => {});
   const origin = new URL(d.reqUrl).origin;
   const list = d.top.map((p) => `<li><strong>${e(p.label)}</strong><br>${e(p.fix)}</li>`).join("");
+  // Private: what people search for this trade (Google suggestions). In the lead alert only, never to the client.
+  const sg = d.searches?.groups || [];
+  const searchList = sg.length ? `<h3>Ce que les gens cherchent (suggestions Google)</h3>` + sg.map((g) =>
+    `<p><strong>« ${e(g.seed)}… »</strong><br>${g.items.slice(0, 8).map(e).join(" · ")}</p>`).join("") : "";
   await send({
     sender: { name: "Le Baliseur (diagnostic)", email: env.MAIL_FROM },
     to: [{ email: env.MAIL_TO }],
@@ -241,7 +245,7 @@ async function notify(env, d) {
     subject: `Diagnostic en ligne : ${d.business} · ${d.total}/100`,
     htmlContent: `<h2>Nouveau diagnostic en ligne</h2><p><strong>${e(d.business)}</strong> (${e(d.city)}) · score <strong>${d.total}/100</strong>${d.found != null ? " · trouvé sans son nom : <strong>" + d.found + " %</strong>" : ""}</p>
       <p>${e(d.first_name)} · ${e(d.email)}${d.phone ? " · " + e(d.phone) : ""}<br>Site : ${e(d.site || "aucun")}${d.search ? "<br>Recherche indiquée : « " + e(d.search) + " »" : ""}</p>
-      <ol>${list}</ol><p><a href="${origin}/#/c/${d.clientId}">Ouvrir le rapport complet</a></p>`,
+      <ol>${list}</ol>${searchList}<p><a href="${origin}/#/c/${d.clientId}">Ouvrir le rapport complet</a></p>`,
   });
   const en = d.en;
   await send({
