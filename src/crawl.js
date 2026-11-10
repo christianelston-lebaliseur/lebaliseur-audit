@@ -75,6 +75,14 @@ async function getText(url) {
   try { return (await r.text()).slice(0, 200000); } catch { return ""; }
 }
 
+// Street-type abbreviations (FR + UK), mapped to one spelling so "12 Av. Gambetta" matches "12 avenue Gambetta".
+const STREET_ABBR = {
+  av: "avenue", ave: "avenue", bd: "boulevard", bld: "boulevard", blvd: "boulevard", boul: "boulevard",
+  pl: "place", rte: "route", ch: "chemin", chem: "chemin", imp: "impasse", all: "allee", sq: "square",
+  fg: "faubourg", fbg: "faubourg", pass: "passage", crs: "cours", st: "saint", ste: "sainte",
+  rd: "road", ln: "lane", sqr: "square", cres: "crescent", dr: "drive",
+};
+
 // Parse one HTML response into page facts.
 export async function parsePage(resp, city, street = "", town = "") {
   const finalUrl = resp.url;
@@ -178,7 +186,10 @@ export async function parsePage(resp, city, street = "", town = "") {
     .map((x) => x.replace(/[\s.()-]/g, "")))].slice(0, 8);
   const plain = (x) => x.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
   p.postcodes = [...new Set(text.match(/\b(?:0[1-9]|[1-8]\d|9[0-5])\d{3}\b/g) || [])].slice(0, 5);
-  p.has_street = !!street && plain(text).includes(plain(street));
+  // Google writes "Av.", "Bd", "Pl." etc.; sites often write the word in full (or the reverse).
+  const streetKey = (x) => " " + plain(x).replace(/[^a-z0-9]+/g, " ").trim()
+    .split(" ").map((w) => STREET_ABBR[w] || w).join(" ") + " ";
+  p.has_street = !!street && streetKey(text).includes(streetKey(street));
   p.has_town = !!town && plain(text).includes(plain(town));
   // Merged communes: "74330 Epagny" on the site for "Epagny Metz-Tessy" on Google (checked with the postcode).
   const townHead = plain(town).split(/[\s-]+/)[0] || "";
